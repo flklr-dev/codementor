@@ -12,7 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAppDispatch } from '../store/hooks';
-import { logoutUser } from '../store/slices/authSlice';
+import { logout } from '../store/slices/authSlice';
 
 export default function AccountScreen() {
   const theme = useTheme();
@@ -79,7 +79,7 @@ export default function AccountScreen() {
   ];
 
   const handleLogout = () => {
-    dispatch(logoutUser());
+    dispatch(logout());
   };
 
   return (

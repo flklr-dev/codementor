@@ -13,16 +13,26 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useAppSelector } from '../store/hooks';
 
 export default function HomeScreen() {
   const theme = useTheme();
   const [searchQuery, setSearchQuery] = React.useState('');
+  
+  // Get the user from auth state
+  const { user } = useAppSelector(state => state.auth);
+  
+  // Get first letter of name for avatar
+  const avatarText = user?.name ? user.name.charAt(0).toUpperCase() : 'C';
+  
+  // Use the user's name if available
+  const userName = user?.name || 'Coder';
 
   const userProgress = {
-    streak: 7,
-    todayMinutes: 45,
-    completedChallenges: 23,
-    level: 12
+    streak: user?.streak || 0,
+    todayMinutes: user?.todayMinutes || 0,
+    completedChallenges: user?.completedChallenges || 0,
+    level: user?.level || 1
   };
 
   const nextLesson = {
@@ -56,13 +66,26 @@ export default function HomeScreen() {
         <View style={styles.heroSection}>
           <View style={styles.header}>
             <View style={styles.headerLeft}>
-              <Avatar.Image
-                size={40}
-                source={{ uri: 'https://i.pravatar.cc/150' }}
-                style={styles.avatar}
-              />
+              {user?.avatar ? (
+                <Avatar.Image
+                  size={40}
+                  source={{ uri: user.avatar }}
+                  style={styles.avatar}
+                />
+              ) : (
+                <Avatar.Text
+                  size={40}
+                  label={avatarText}
+                  style={[styles.avatar, { backgroundColor: '#FFFFFF' }]}
+                  labelStyle={[styles.avatarLabel, { 
+                    color: '#6366F1',
+                    textAlign: 'center',
+                    textAlignVertical: 'center',
+                  }]}
+                />
+              )}
               <View style={styles.userInfo}>
-                <Text style={styles.userName}>John Doe</Text>
+                <Text style={styles.userName}>{userName}</Text>
                 <View style={styles.statsRow}>
                   <Text style={styles.levelText}>Level {userProgress.level}</Text>
                   <View style={styles.streakContainer}>
@@ -247,8 +270,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   avatar: {
-    borderWidth: 2,
-    borderColor: '#A78BFA',
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   notificationButton: {
     backgroundColor: 'rgba(255,255,255,0.1)',
@@ -447,5 +471,14 @@ const styles = StyleSheet.create({
     color: '#FCD34D',
     fontSize: 13,
     fontWeight: '500',
+  },
+  avatarLabel: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#6366F1',
+    textAlign: 'center',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+    lineHeight: 40,
   },
 });

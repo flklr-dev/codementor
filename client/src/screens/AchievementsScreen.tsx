@@ -1,5 +1,5 @@
-import React from 'react';
-import { StyleSheet, View, ScrollView } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { StyleSheet, View, ScrollView, ActivityIndicator, RefreshControl } from 'react-native';
 import {
   Text,
   Card,
@@ -13,55 +13,106 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
+import axios from 'axios';
+import { useAppSelector } from '../store/hooks';
+import api from '../services/api';
+
+interface Achievement {
+  _id: string;
+  title: string;
+  description: string;
+  category: string;
+  icon: string;
+  color: string;
+  targetValue: number;
+  progress: number;
+  earned: boolean;
+}
+
+interface UserStats {
+  level: number;
+  xp: number;
+  nextLevelXp: number;
+  streak: number;
+  lessonsCompleted: number;
+  quizzesTaken: number;
+  avgQuizScore: number;
+  totalCodingHours: number;
+}
 
 export default function AchievementsScreen() {
   const theme = useTheme();
   const navigation = useNavigation();
+  const { user } = useAppSelector(state => state.auth);
+  
+  const [userStats, setUserStats] = useState<UserStats | null>(null);
+  const [achievements, setAchievements] = useState<Achievement[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
 
-  const userStats = {
-    level: 12,
-    xp: 2450,
-    nextLevelXp: 3000,
-    streak: 7,
-    lessonsCompleted: 23,
-    quizzesTaken: 15,
-    avgQuizScore: 85,
-    totalCodingHours: 45,
+  const fetchUserProgress = async () => {
+    try {
+      setLoading(true);
+      const response = await api.get(`/users/${user?.id}/progress`);
+      
+      // Process user stats
+      setUserStats({
+        level: response.data.level || 1,
+        xp: response.data.xp || 0,
+        nextLevelXp: response.data.nextLevelXp || 1000,
+        streak: response.data.streak || 0,
+        lessonsCompleted: response.data.completedLessons?.length || 0,
+        quizzesTaken: response.data.quizScores?.length || 0,
+        avgQuizScore: response.data.avgQuizScore || 0,
+        totalCodingHours: Math.round(response.data.totalCodingTime / 60) || 0,
+      });
+      
+      // Process achievements
+      setAchievements(response.data.achievements || []);
+      setLoading(false);
+    } catch (err) {
+      console.error('Error fetching user progress:', err);
+      setError('Failed to load user progress');
+      setLoading(false);
+    }
   };
 
-  const achievements = [
-    {
-      id: 1,
-      title: 'Syntax Master',
-      description: 'Complete 10 beginner lessons',
-      progress: 0.8,
-      icon: 'code-slash',
-      color: '#22C55E',
-      current: 8,
-      target: 10,
-    },
-    {
-      id: 2,
-      title: 'Debugging Champ',
-      description: 'Solve 5 coding challenges',
-      progress: 0.6,
-      icon: 'bug',
-      color: '#3B82F6',
-      current: 3,
-      target: 5,
-    },
-    {
-      id: 3,
-      title: 'Consistent Coder',
-      description: '7-day coding streak',
-      progress: 1,
-      icon: 'flame',
-      color: '#F59E0B',
-      current: 7,
-      target: 7,
-      completed: true,
-    },
-  ];
+  useEffect(() => {
+    fetchUserProgress();
+  }, [user?.id]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchUserProgress();
+    setRefreshing(false);
+  };
+
+  if (loading && !userStats) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <Text style={styles.loadingText}>Loading achievements...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // If no stats are available yet, show default values
+  const stats = userStats || {
+    level: 1,
+    xp: 0,
+    nextLevelXp: 1000,
+    streak: 0,
+    lessonsCompleted: 0,
+    quizzesTaken: 0,
+    avgQuizScore: 0,
+    totalCodingHours: 0,
+  };
+
+  // Count new/unearned achievements that have progress
+  const newAchievementsCount = achievements.filter(a => !a.earned && a.progress > 0).length;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -75,7 +126,7 @@ export default function AchievementsScreen() {
           <View style={styles.headerLeft}>
             <View style={styles.levelBadgeContainer}>
               <Surface style={styles.levelBadge}>
-                <Text style={styles.levelText}>{userStats.level}</Text>
+                <Text style={styles.levelText}>{stats.level}</Text>
               </Surface>
               <Text style={styles.levelLabel}>LEVEL</Text>
             </View>
@@ -84,7 +135,7 @@ export default function AchievementsScreen() {
               <View style={styles.streakContainer}>
                 <View style={styles.streakBadge}>
                   <Ionicons name="flame" size={16} color="#FCD34D" />
-                  <Text style={styles.streakText}>{userStats.streak} Day Streak</Text>
+                  <Text style={styles.streakText}>{stats.streak} Day Streak</Text>
                 </View>
               </View>
             </View>
@@ -97,25 +148,30 @@ export default function AchievementsScreen() {
             <View style={styles.progressHeader}>
               <Text style={styles.progressLabel}>Experience Points</Text>
               <Text style={styles.xpText}>
-                {userStats.xp}/{userStats.nextLevelXp} XP
+                {stats.xp}/{stats.nextLevelXp} XP
               </Text>
             </View>
             <View style={styles.progressBarContainer}>
               <View 
                 style={[
                   styles.progressBarFill,
-                  { width: `${(userStats.xp / userStats.nextLevelXp) * 100}%` }
+                  { width: `${(stats.xp / stats.nextLevelXp) * 100}%` }
                 ]} 
               />
             </View>
             <Text style={styles.progressSubtext}>
-              {userStats.nextLevelXp - userStats.xp} XP until next level
+              {stats.nextLevelXp - stats.xp} XP until next level
             </Text>
           </View>
         </View>
       </LinearGradient>
 
-      <ScrollView style={styles.scrollView}>
+      <ScrollView 
+        style={styles.scrollView}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
         {/* Quick Stats */}
         <View style={styles.statsContainer}>
           <Text style={styles.statsTitle}>Quick Stats</Text>
@@ -129,7 +185,7 @@ export default function AchievementsScreen() {
                 <View style={styles.iconContainer}>
                   <Ionicons name="book" size={24} color="#FFFFFF" />
                 </View>
-                <Text style={styles.statValue}>{userStats.lessonsCompleted}</Text>
+                <Text style={styles.statValue}>{stats.lessonsCompleted}</Text>
                 <Text style={styles.statLabel}>Lessons Learn</Text>
               </LinearGradient>
             </View>
@@ -141,7 +197,7 @@ export default function AchievementsScreen() {
                 <View style={styles.iconContainer}>
                   <Ionicons name="trophy" size={24} color="#FFFFFF" />
                 </View>
-                <Text style={styles.statValue}>{userStats.avgQuizScore}%</Text>
+                <Text style={styles.statValue}>{stats.avgQuizScore}%</Text>
                 <Text style={styles.statLabel}>Quiz Average</Text>
               </LinearGradient>
             </View>
@@ -154,7 +210,7 @@ export default function AchievementsScreen() {
                 <View style={styles.iconContainer}>
                   <Ionicons name="time" size={24} color="#FFFFFF" />
                 </View>
-                <Text style={styles.statValue}>{userStats.totalCodingHours}h</Text>
+                <Text style={styles.statValue}>{stats.totalCodingHours}h</Text>
                 <Text style={styles.statLabel}>Hours Coded</Text>
               </LinearGradient>
             </View>
@@ -166,7 +222,7 @@ export default function AchievementsScreen() {
                 <View style={styles.iconContainer}>
                   <Ionicons name="flame" size={24} color="#FFFFFF" />
                 </View>
-                <Text style={styles.statValue}>{userStats.streak}</Text>
+                <Text style={styles.statValue}>{stats.streak}</Text>
                 <Text style={styles.statLabel}>Day Streak</Text>
               </LinearGradient>
             </View>
@@ -177,46 +233,63 @@ export default function AchievementsScreen() {
         <View style={styles.achievementsContainer}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Achievements</Text>
-            <View style={styles.newBadge}>
-              <Text style={styles.newBadgeText}>3 New</Text>
-            </View>
-          </View>
-          
-          {achievements.map((achievement) => (
-            <Surface key={achievement.id} style={styles.achievementCard}>
-              <View style={styles.achievementContent}>
-                <View style={styles.achievementLeft}>
-                  <View style={[styles.achievementIcon, { backgroundColor: `${achievement.color}15` }]}>
-                    <Ionicons name={achievement.icon} size={24} color={achievement.color} />
-                  </View>
-                  <View style={styles.achievementInfo}>
-                    <Text style={styles.achievementTitle}>{achievement.title}</Text>
-                    <Text style={styles.achievementDesc}>{achievement.description}</Text>
-                  </View>
-                </View>
-                
-                <View style={styles.achievementRight}>
-                  {achievement.completed ? (
-                    <View style={styles.completedBadge}>
-                      <Ionicons name="checkmark-circle" size={24} color="#22C55E" />
-                    </View>
-                  ) : (
-                    <Text style={styles.progressText}>
-                      {achievement.current}/{achievement.target}
-                    </Text>
-                  )}
-                </View>
+            {newAchievementsCount > 0 && (
+              <View style={styles.newBadge}>
+                <Text style={styles.newBadgeText}>{newAchievementsCount} New</Text>
               </View>
-              
-              {!achievement.completed && (
-                <ProgressBar
-                  progress={achievement.progress}
-                  color={achievement.color}
-                  style={styles.progressBar}
-                />
-              )}
-            </Surface>
-          ))}
+            )}
+          </View>
+
+          {achievements.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="trophy-outline" size={64} color="#9CA3AF" />
+              <Text style={styles.emptyText}>
+                No achievements yet. Keep learning to earn achievements!
+              </Text>
+            </View>
+          ) : (
+            achievements.map((achievement) => (
+              <Card key={achievement._id} style={styles.achievementCard}>
+                <Card.Content style={styles.achievementContent}>
+                  <View style={styles.achievementLeft}>
+                    <View
+                      style={[
+                        styles.achievementIcon,
+                        { backgroundColor: achievement.color + '20' },
+                      ]}>
+                      <Ionicons
+                        name={achievement.icon as any}
+                        size={24}
+                        color={achievement.color}
+                      />
+                    </View>
+                    <View style={styles.achievementInfo}>
+                      <Text style={styles.achievementTitle}>{achievement.title}</Text>
+                      <Text style={styles.achievementDesc}>{achievement.description}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.achievementRight}>
+                    {achievement.earned ? (
+                      <View style={styles.completedBadge}>
+                        <Ionicons name="checkmark" size={18} color="#22C55E" />
+                      </View>
+                    ) : (
+                      <Text style={styles.progressText}>
+                        {Math.floor(achievement.progress)}/{achievement.targetValue}
+                      </Text>
+                    )}
+                  </View>
+                </Card.Content>
+                {!achievement.earned && achievement.progress > 0 && (
+                  <ProgressBar
+                    progress={achievement.progress / achievement.targetValue}
+                    color={achievement.color}
+                    style={styles.achievementProgress}
+                  />
+                )}
+              </Card>
+            ))
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -226,13 +299,43 @@ export default function AchievementsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F9FAFB',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#6B7280',
+  },
+  emptyContainer: {
+    padding: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#6B7280',
+    textAlign: 'center',
+  },
+  achievementProgress: {
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 16,
   },
   heroSection: {
+    padding: 16,
+    paddingTop: 12,
     paddingBottom: 24,
   },
   header: {
-    padding: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
   },
   headerLeft: {
     flexDirection: 'row',
@@ -242,24 +345,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   levelBadge: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 4,
-    backgroundColor: '#FFFFFF',
-    elevation: 3,
+    elevation: 2,
   },
   levelText: {
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: '700',
-    color: '#6366F1',
+    color: '#FFFFFF',
   },
   levelLabel: {
-    fontSize: 12,
-    color: '#FFFFFF',
+    fontSize: 10,
     fontWeight: '600',
+    color: '#E5E7EB',
+    marginTop: 4,
   },
   headerContent: {
     marginLeft: 16,
@@ -268,17 +371,19 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '700',
     color: '#FFFFFF',
+    marginBottom: 4,
   },
   streakContainer: {
-    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   streakBadge: {
     flexDirection: 'row',
+    backgroundColor: 'rgba(251, 191, 36, 0.2)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 16,
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
     alignSelf: 'flex-start',
     gap: 6,
   },

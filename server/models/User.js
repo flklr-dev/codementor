@@ -57,6 +57,22 @@ userSchema.methods.isValidPassword = async function(password) {
   return await bcrypt.compare(password, this.password);
 };
 
+// Add a method to calculate XP needed for next level
+userSchema.methods.getXpForNextLevel = function() {
+  return this.level * 1000;
+};
+
+// Add a method to check if user can level up
+userSchema.methods.checkAndLevelUp = function() {
+  let levelsGained = 0;
+  while (this.xp >= this.getXpForNextLevel()) {
+    this.xp -= this.getXpForNextLevel();
+    this.level += 1;
+    levelsGained += 1;
+  }
+  return levelsGained;
+};
+
 const User = mongoose.model('User', userSchema);
 
 module.exports = User; 

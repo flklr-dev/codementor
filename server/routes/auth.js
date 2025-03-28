@@ -1,6 +1,9 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const UserProgress = require('../models/UserProgress');
+const Achievement = require('../models/Achievement');
+const auth = require('../middleware/auth');
 const router = express.Router();
 
 // Register a new user
@@ -14,9 +17,28 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'Email already in use' });
     }
     
-    // Create new user
-    const user = new User({ name, email, password });
+    // Create new user with initial streak of 1
+    const user = new User({ 
+      name, 
+      email, 
+      password,
+      streak: 1,
+      level: 1,
+      xp: 0,
+      lastLogin: new Date()
+    });
     await user.save();
+    
+    // Create initial user progress record
+    const userProgress = new UserProgress({
+      userId: user._id,
+      completedLessons: [],
+      completedChallenges: [],
+      currentLesson: null,
+      achievements: [],
+      totalCodingTime: 0
+    });
+    await userProgress.save();
     
     // Generate JWT token
     const token = jwt.sign(
@@ -32,7 +54,8 @@ router.post('/register', async (req, res) => {
         name: user.name,
         email: user.email,
         level: user.level,
-        xp: user.xp
+        xp: user.xp,
+        streak: user.streak
       }
     });
   } catch (error) {
@@ -61,14 +84,25 @@ router.post('/login', async (req, res) => {
     // Update last login and streak
     const now = new Date();
     const lastLogin = user.lastLogin;
-    const daysSinceLastLogin = lastLogin ? Math.floor((now - lastLogin) / (1000 * 60 * 60 * 24)) : 0;
     
-    if (daysSinceLastLogin === 1) {
-      // Increment streak if user logged in the next day
-      user.streak += 1;
-    } else if (daysSinceLastLogin > 1) {
-      // Reset streak if user missed a day
+    if (!lastLogin) {
+      // First time login (shouldn't happen normally as it's set during registration)
       user.streak = 1;
+    } else {
+      const hoursSinceLastLogin = Math.floor((now - lastLogin) / (1000 * 60 * 60));
+      
+      // If last login was between 20-28 hours ago (allowing some flexibility around the 24-hour mark)
+      if (hoursSinceLastLogin >= 20 && hoursSinceLastLogin <= 28) {
+        // Increment streak if user logged in roughly 24 hours later
+        user.streak += 1;
+        
+        // Check for streak achievements and award XP if needed
+        await checkAndUpdateAchievements(user._id);
+      } else if (hoursSinceLastLogin > 28) {
+        // Reset streak if user missed the 24-hour window
+        user.streak = 1;
+      }
+      // Keep current streak if logging in multiple times within the same day
     }
     
     user.lastLogin = now;
@@ -94,6 +128,154 @@ router.post('/login', async (req, res) => {
     });
   } catch (error) {
     console.error('Login error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Helper function to check and update streak achievements
+async function checkAndUpdateAchievements(userId) {
+  try {
+    const user = await User.findById(userId);
+    if (!user) return;
+    
+    // Get user progress
+    let userProgress = await UserProgress.findOne({ userId });
+    if (!userProgress) {
+      userProgress = new UserProgress({ userId });
+      await userProgress.save();
+    }
+    
+    // Get streak achievements
+    const streakAchievements = await Achievement.find({ requirement: 'streak' });
+    
+    // Check each achievement
+    for (const achievement of streakAchievements) {
+      // Check if user already has this achievement
+      const existingAchievement = userProgress.achievements.find(
+        a => a.achievementId && a.achievementId.toString() === achievement._id.toString()
+      );
+      
+      // If already earned, skip
+      if (existingAchievement && existingAchievement.earned) continue;
+      
+      // Check if streak meets or exceeds target
+      if (user.streak >= achievement.targetValue) {
+        // If existing achievement entry, update it
+        if (existingAchievement) {
+          existingAchievement.progress = user.streak;
+          existingAchievement.earned = true;
+          existingAchievement.earnedAt = new Date();
+        } else {
+          // Add new achievement
+          userProgress.achievements.push({
+            achievementId: achievement._id,
+            progress: user.streak,
+            earned: true,
+            earnedAt: new Date()
+          });
+        }
+        
+        // Award XP
+        user.xp += achievement.xpReward;
+        
+        // Check if user should level up
+        const levelsGained = user.checkAndLevelUp();
+        await user.save();
+      }
+    }
+    
+    // Save progress changes
+    await userProgress.save();
+    
+  } catch (error) {
+    console.error('Error checking achievements:', error);
+  }
+}
+
+// Get current user data
+router.get('/me', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId).select('-password');
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    res.json({
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      level: user.level,
+      xp: user.xp,
+      streak: user.streak
+    });
+  } catch (error) {
+    console.error('Error fetching user data:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Update user profile
+router.put('/profile', auth, async (req, res) => {
+  try {
+    const { name, email } = req.body;
+    
+    // Find user
+    const user = await User.findById(req.user.userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Update fields
+    if (name) user.name = name;
+    if (email) {
+      // Check if email is already in use by another user
+      const existingUser = await User.findOne({ email });
+      if (existingUser && existingUser._id.toString() !== user._id.toString()) {
+        return res.status(400).json({ error: 'Email already in use' });
+      }
+      user.email = email;
+    }
+    
+    await user.save();
+    
+    res.json({
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      level: user.level,
+      xp: user.xp,
+      streak: user.streak
+    });
+  } catch (error) {
+    console.error('Error updating profile:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Change password
+router.put('/password', auth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    
+    // Find user
+    const user = await User.findById(req.user.userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Verify current password
+    const isMatch = await user.isValidPassword(currentPassword);
+    if (!isMatch) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+    
+    // Update password
+    user.password = newPassword;
+    await user.save();
+    
+    res.json({ message: 'Password updated successfully' });
+  } catch (error) {
+    console.error('Error changing password:', error);
     res.status(500).json({ error: 'Server error' });
   }
 });

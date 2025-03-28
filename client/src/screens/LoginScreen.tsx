@@ -6,7 +6,6 @@ import {
   Platform,
   TouchableOpacity,
   Image,
-  Alert,
 } from 'react-native';
 import {
   Text,
@@ -15,6 +14,7 @@ import {
   useTheme,
   Divider,
   HelperText,
+  Snackbar,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -35,42 +35,66 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  
+  // Add states for error handling with snackbar instead of Alert
+  const [errorMessage, setErrorMessage] = useState('');
+  const [showErrorSnackbar, setShowErrorSnackbar] = useState(false);
+  
+  // Add state for login success
+  const [loginSuccess, setLoginSuccess] = useState(false);
+  
+  // Button loading state
+  const [isButtonLoading, setIsButtonLoading] = useState(false);
+  
   const theme = useTheme();
   const navigation = useNavigation<LoginScreenNavigationProp>();
   
   const dispatch = useAppDispatch();
-  const { error, isLoading, token } = useAppSelector(state => state.auth);
+  const { error, token, user } = useAppSelector(state => state.auth);
 
-  // Effect to navigate on successful login
+  // Effect to navigate on successful login after showing success message
   useEffect(() => {
-    if (token) {
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Main' }],
-      });
+    if (token && user) {
+      setIsButtonLoading(false);
+      setLoginSuccess(true);
+      
+      // Navigate after showing success message for a short time
+      const timer = setTimeout(() => {
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Main' }],
+        });
+      }, 1500); // Show success message for 1.5 seconds
+      
+      return () => clearTimeout(timer);
     }
-  }, [token, navigation]);
+  }, [token, user, navigation]);
 
-  // Effect to show error alerts
+  // Effect to handle errors with snackbar instead of Alert
   useEffect(() => {
     if (error) {
-      Alert.alert('Login Error', error);
+      setErrorMessage(`Login Error: ${error}`);
+      setShowErrorSnackbar(true);
+      setIsButtonLoading(false);
       dispatch(clearError());
     }
   }, [error, dispatch]);
 
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert('Error', 'Please fill all fields');
+      setErrorMessage('Please fill all fields');
+      setShowErrorSnackbar(true);
       return;
     }
     
+    setIsButtonLoading(true);
     dispatch(loginUser({ email, password }));
   };
 
   const handleGoogleLogin = async () => {
     // Implement OAuth login
-    Alert.alert('Info', 'Google login not implemented yet');
+    setErrorMessage('Google login not implemented yet');
+    setShowErrorSnackbar(true);
   };
 
   return (
@@ -78,89 +102,113 @@ export default function LoginScreen() {
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.content}>
-        <View style={styles.header}>
-          <Image 
-            source={require('../../assets/logo.png')} 
-            style={styles.logo}
-            resizeMode="contain"
-          />
-          <Text variant="titleLarge" style={styles.title}>
-            Welcome Back
-          </Text>
-          <Text variant="bodyMedium" style={styles.subtitle}>
-            Login to continue your coding journey
-          </Text>
-        </View>
-
-        <View style={styles.form}>
-          <TextInput
-            label="Email"
-            value={email}
-            onChangeText={setEmail}
-            mode="outlined"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            style={styles.input}
-            left={<TextInput.Icon icon="email" />}
-          />
-
-          <TextInput
-            label="Password"
-            value={password}
-            onChangeText={setPassword}
-            mode="outlined"
-            secureTextEntry={!showPassword}
-            style={styles.input}
-            left={<TextInput.Icon icon="lock" />}
-            right={
-              <TextInput.Icon
-                icon={showPassword ? 'eye-off' : 'eye'}
-                onPress={() => setShowPassword(!showPassword)}
+        
+        {!loginSuccess ? (
+          <>
+            <View style={styles.header}>
+              <Image 
+                source={require('../../assets/logo.png')} 
+                style={styles.logo}
+                resizeMode="contain"
               />
-            }
-          />
-
-          <TouchableOpacity
-            style={styles.forgotPassword}
-            onPress={() => console.log('Forgot password')}>
-            <Text style={{ color: theme.colors.primary }}>
-              Forgot Password?
-            </Text>
-          </TouchableOpacity>
-
-          <Button
-            mode="contained"
-            onPress={handleLogin}
-            style={styles.button}
-            loading={isLoading}
-            disabled={isLoading}>
-            Login
-          </Button>
-
-          <View style={styles.dividerContainer}>
-            <Divider style={styles.divider} />
-            <Text style={styles.dividerText}>OR CONTINUE WITH</Text>
-            <Divider style={styles.divider} />
-          </View>
-
-          <Button
-            mode="outlined"
-            icon="google"
-            onPress={handleGoogleLogin}
-            style={styles.googleButton}>
-            Google
-          </Button>
-
-          <View style={styles.linkContainer}>
-            <Text variant="bodyMedium">Don't have an account? </Text>
-            <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
-              <Text style={{ color: theme.colors.primary, fontWeight: 'bold' }}>
-                Sign Up
+              <Text variant="titleLarge" style={styles.title}>
+                Welcome Back
               </Text>
-            </TouchableOpacity>
+              <Text variant="bodyMedium" style={styles.subtitle}>
+                Login to continue your coding journey
+              </Text>
+            </View>
+
+            <View style={styles.form}>
+              <TextInput
+                label="Email"
+                value={email}
+                onChangeText={setEmail}
+                mode="outlined"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                style={styles.input}
+                left={<TextInput.Icon icon="email" />}
+              />
+
+              <TextInput
+                label="Password"
+                value={password}
+                onChangeText={setPassword}
+                mode="outlined"
+                secureTextEntry={!showPassword}
+                style={styles.input}
+                left={<TextInput.Icon icon="lock" />}
+                right={
+                  <TextInput.Icon
+                    icon={showPassword ? 'eye-off' : 'eye'}
+                    onPress={() => setShowPassword(!showPassword)}
+                  />
+                }
+              />
+
+              <TouchableOpacity
+                style={styles.forgotPassword}
+                onPress={() => console.log('Forgot password')}>
+                <Text style={{ color: theme.colors.primary }}>
+                  Forgot Password?
+                </Text>
+              </TouchableOpacity>
+
+              <Button
+                mode="contained"
+                onPress={handleLogin}
+                style={styles.button}
+                contentStyle={styles.buttonContent}
+                loading={isButtonLoading}
+                disabled={isButtonLoading}>
+                Login
+              </Button>
+
+              <View style={styles.dividerContainer}>
+                <Divider style={styles.divider} />
+                <Text style={styles.dividerText}>OR CONTINUE WITH</Text>
+                <Divider style={styles.divider} />
+              </View>
+
+              <Button
+                mode="outlined"
+                icon="google"
+                onPress={handleGoogleLogin}
+                style={styles.googleButton}
+                contentStyle={styles.buttonContent}>
+                Google
+              </Button>
+
+              <View style={styles.linkContainer}>
+                <Text variant="bodyMedium">Don't have an account? </Text>
+                <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
+                  <Text style={{ color: theme.colors.primary, fontWeight: 'bold' }}>
+                    Sign Up
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </>
+        ) : (
+          <View style={styles.successContainer}>
+            <Ionicons name="checkmark-circle" size={60} color="#22C55E" />
+            <Text style={styles.successTitle}>Login Successful!</Text>
+            <Text style={styles.successText}>
+              Welcome back{user?.name ? `, ${user.name}` : ''}! Redirecting you to your dashboard...
+            </Text>
           </View>
-        </View>
+        )}
       </KeyboardAvoidingView>
+      
+      {/* Error Snackbar */}
+      <Snackbar
+        visible={showErrorSnackbar}
+        onDismiss={() => setShowErrorSnackbar(false)}
+        duration={3000}
+        style={styles.errorSnackbar}>
+        {errorMessage}
+      </Snackbar>
     </SafeAreaView>
   );
 }
@@ -233,5 +281,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     marginTop: 12,
+  },
+  buttonContent: {
+    height: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexDirection: 'row',
+  },
+  errorSnackbar: {
+    backgroundColor: '#EF4444',
+  },
+  // Add these new styles for the success message
+  successContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    flex: 1,
+  },
+  successTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#22C55E',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  successText: {
+    fontSize: 16,
+    color: '#374151',
+    textAlign: 'center',
+    marginBottom: 24,
   },
 }); 

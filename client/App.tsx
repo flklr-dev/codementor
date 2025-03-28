@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { PaperProvider } from 'react-native-paper';
@@ -17,13 +17,22 @@ const Stack = createNativeStackNavigator();
 
 function AppContent() {
   const dispatch = useAppDispatch();
-  const { token, isLoading } = useAppSelector(state => state.auth);
+  const { token } = useAppSelector(state => state.auth);
+  const [initialLoading, setInitialLoading] = useState(true);
   
   useEffect(() => {
-    dispatch(loadAuth());
+    // Only show loading on initial app start
+    const initialize = async () => {
+      await dispatch(loadAuth());
+      setInitialLoading(false);
+    };
+    
+    initialize();
   }, [dispatch]);
 
-  if (isLoading) {
+  // Only show loading indicator on first app load
+  // Not during registration/login attempts
+  if (initialLoading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
