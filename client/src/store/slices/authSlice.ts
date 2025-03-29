@@ -85,6 +85,22 @@ export const loadAuth = createAsyncThunk(
   }
 );
 
+export const updateUserData = createAsyncThunk(
+  'auth/updateUserData',
+  async (_, { rejectWithValue, getState }) => {
+    try {
+      const response = await api.get('/auth/me');
+      return response.data;
+    } catch (error: any) {
+      return rejectWithValue(
+        error.response?.data?.error || 
+        error.message || 
+        'Failed to update user data'
+      );
+    }
+  }
+);
+
 // Auth slice
 const authSlice = createSlice({
   name: 'auth',
@@ -145,6 +161,12 @@ const authSlice = createSlice({
       })
       .addCase(loadAuth.rejected, (state) => {
         state.isLoading = false;
+      });
+
+    // Update user data cases
+    builder
+      .addCase(updateUserData.fulfilled, (state, action) => {
+        state.user = action.payload;
       });
   },
 });

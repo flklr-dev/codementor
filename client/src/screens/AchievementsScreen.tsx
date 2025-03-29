@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { StyleSheet, View, ScrollView, ActivityIndicator, RefreshControl } from 'react-native';
 import {
   Text,
@@ -12,10 +12,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import axios from 'axios';
-import { useAppSelector } from '../store/hooks';
+import { useAppSelector, useAppDispatch } from '../store/hooks';
 import api from '../services/api';
+import { updateUserData } from '../store/slices/authSlice';
 
 interface Achievement {
   _id: string;
@@ -26,7 +27,9 @@ interface Achievement {
   color: string;
   targetValue: number;
   progress: number;
+  xpReward: number;
   earned: boolean;
+  earnedAt?: Date;
 }
 
 interface UserStats {
@@ -44,6 +47,7 @@ export default function AchievementsScreen() {
   const theme = useTheme();
   const navigation = useNavigation();
   const { user } = useAppSelector(state => state.auth);
+  const dispatch = useAppDispatch();
   
   const [userStats, setUserStats] = useState<UserStats | null>(null);
   const [achievements, setAchievements] = useState<Achievement[]>([]);
@@ -51,10 +55,45 @@ export default function AchievementsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
 
+  const getUserId = () => {
+    return user?.id || user?._id;
+  };
+
+  const forceRefresh = async () => {
+    try {
+      const response = await api.get(`/auth/me?t=${new Date().getTime()}`);
+      if (response.data) {
+        dispatch(updateUserData(response.data));
+        console.log('User data refreshed from server:', JSON.stringify({
+          id: response.data.id,
+          _id: response.data._id
+        }));
+      }
+    } catch (error) {
+      console.error('Force refresh failed:', error);
+    }
+  };
+
   const fetchUserProgress = async () => {
     try {
       setLoading(true);
-      const response = await api.get(`/users/${user?.id}/progress`);
+      
+      const userId = getUserId();
+      
+      if (!userId) {
+        console.error('No user ID available for fetching progress');
+        setError('User ID not available');
+        setLoading(false);
+        await forceRefresh();
+        return;
+      }
+      
+      console.log('Fetching progress with user ID:', userId);
+      
+      const timestamp = new Date().getTime();
+      const response = await api.get(`/users/${userId}/progress?t=${timestamp}`);
+      
+      console.log('Progress API response received, status:', response.status);
       
       // Process user stats
       setUserStats({
@@ -78,15 +117,43 @@ export default function AchievementsScreen() {
     }
   };
 
-  useEffect(() => {
-    fetchUserProgress();
-  }, [user?.id]);
+  useFocusEffect(
+    useCallback(() => {
+      const userId = getUserId();
+      if (userId) {
+        console.log('Screen focused, refreshing with user ID:', userId);
+        fetchUserProgress();
+      } else {
+        console.log('Screen focused but no user ID available, trying to refresh user data');
+        forceRefresh().then(() => {
+          const refreshedId = getUserId();
+          if (refreshedId) {
+            console.log('User ID now available after refresh:', refreshedId);
+            fetchUserProgress();
+          }
+        });
+      }
+      
+      return () => {
+        // Any cleanup code can go here
+      };
+    }, [])
+  );
 
-  const onRefresh = async () => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchUserProgress();
-    setRefreshing(false);
-  };
+    try {
+      await forceRefresh();
+      const userId = getUserId();
+      if (userId) {
+        await fetchUserProgress();
+      } else {
+        setError('Unable to fetch user data after refresh');
+      }
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
 
   if (loading && !userStats) {
     return (
@@ -266,6 +333,13 @@ export default function AchievementsScreen() {
                     <View style={styles.achievementInfo}>
                       <Text style={styles.achievementTitle}>{achievement.title}</Text>
                       <Text style={styles.achievementDesc}>{achievement.description}</Text>
+                      
+                      <View style={styles.xpRewardContainer}>
+                        <Ionicons name="flash" size={14} color="#F59E0B" />
+                        <Text style={styles.xpRewardText}>
+                          +{achievement.xpReward || 0} XP
+                        </Text>
+                      </View>
                     </View>
                   </View>
                   <View style={styles.achievementRight}>
@@ -275,14 +349,14 @@ export default function AchievementsScreen() {
                       </View>
                     ) : (
                       <Text style={styles.progressText}>
-                        {Math.floor(achievement.progress)}/{achievement.targetValue}
+                        {Math.min(achievement.progress, achievement.targetValue)}/{achievement.targetValue}
                       </Text>
                     )}
                   </View>
                 </Card.Content>
-                {!achievement.earned && achievement.progress > 0 && (
+                {!achievement.earned && (
                   <ProgressBar
-                    progress={achievement.progress / achievement.targetValue}
+                    progress={Math.min(achievement.progress / achievement.targetValue, 1)}
                     color={achievement.color}
                     style={styles.achievementProgress}
                   />
@@ -323,8 +397,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   achievementProgress: {
-    borderBottomLeftRadius: 16,
-    borderBottomRightRadius: 16,
+    height: 4,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
   },
   heroSection: {
     padding: 16,
@@ -564,5 +639,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0FDF4',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  xpRewardContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+  },
+  xpRewardText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#F59E0B',
+    marginLeft: 4,
   },
 }); 

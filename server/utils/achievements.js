@@ -8,18 +8,26 @@ const Achievement = require('../models/Achievement');
  */
 async function updateAchievements(userId) {
   try {
-    const user = await User.findById(userId);
-    if (!user) return;
+    // Convert userId to string to ensure consistent comparison
+    const userIdStr = userId.toString();
+    
+    const user = await User.findById(userIdStr);
+    if (!user) {
+      console.log(`User ${userIdStr} not found during achievement update`);
+      return;
+    }
     
     // Get user progress
-    let userProgress = await UserProgress.findOne({ userId });
+    let userProgress = await UserProgress.findOne({ userId: userIdStr });
     if (!userProgress) {
-      userProgress = new UserProgress({ userId });
+      console.log(`Creating new progress for user ${userIdStr}`);
+      userProgress = new UserProgress({ userId: userIdStr });
       await userProgress.save();
     }
     
     // Get all achievements
     const achievements = await Achievement.find();
+    console.log(`Checking ${achievements.length} achievements for user ${userIdStr}`);
     
     // Check each achievement
     for (const achievement of achievements) {
@@ -82,11 +90,11 @@ async function updateAchievements(userId) {
         
         // Award XP
         user.xp += achievement.xpReward;
+        console.log(`User ${userIdStr} earned achievement ${achievement.title}, +${achievement.xpReward} XP`);
         
         // Check if user should level up
-        while (user.xp >= user.level * 1000) {
-          user.level += 1;
-        }
+        const levelsGained = user.checkAndLevelUp();
+        console.log(`User ${userIdStr} gained ${levelsGained} levels, new level: ${user.level}`);
         
         // Save user changes
         await user.save();

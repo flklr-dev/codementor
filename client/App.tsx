@@ -5,8 +5,9 @@ import { PaperProvider } from 'react-native-paper';
 import { Provider, useDispatch, useSelector } from 'react-redux';
 import { theme } from './src/theme';
 import { store } from './src/store';
-import { loadAuth } from './src/store/slices/authSlice';
+import { loadAuth, updateUserData } from './src/store/slices/authSlice';
 import { useAppDispatch, useAppSelector } from './src/store/hooks';
+import api from './src/services/api';
 
 import LoginScreen from './src/screens/LoginScreen';
 import SignupScreen from './src/screens/SignupScreen';
@@ -17,7 +18,7 @@ const Stack = createNativeStackNavigator();
 
 function AppContent() {
   const dispatch = useAppDispatch();
-  const { token } = useAppSelector(state => state.auth);
+  const { token, user } = useAppSelector(state => state.auth);
   const [initialLoading, setInitialLoading] = useState(true);
   
   useEffect(() => {
@@ -25,10 +26,21 @@ function AppContent() {
     const initialize = async () => {
       await dispatch(loadAuth());
       setInitialLoading(false);
+      
+      // Check streak if logged in
+      if (token) {
+        try {
+          await api.post('/auth/check-streak');
+          // Refresh user data to get updated streak
+          await dispatch(updateUserData());
+        } catch (error) {
+          console.error('Error checking streak:', error);
+        }
+      }
     };
     
     initialize();
-  }, [dispatch]);
+  }, [dispatch, token]);
 
   // Only show loading indicator on first app load
   // Not during registration/login attempts

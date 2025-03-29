@@ -192,21 +192,29 @@ async function checkAndUpdateAchievements(userId) {
   }
 }
 
-// Get current user data
+// Get current user
 router.get('/me', auth, async (req, res) => {
   try {
-    const user = await User.findById(req.user.userId).select('-password');
-    if (!user) {
+    // Get fresh user data from database (don't use cached req.user)
+    const freshUser = await User.findById(req.userId);
+    if (!freshUser) {
       return res.status(404).json({ error: 'User not found' });
     }
     
+    console.log('Fresh user data:', {
+      id: freshUser._id,
+      xp: freshUser.xp,
+      level: freshUser.level,
+      streak: freshUser.streak
+    });
+    
     res.json({
-      id: user._id,
-      name: user.name,
-      email: user.email,
-      level: user.level,
-      xp: user.xp,
-      streak: user.streak
+      id: freshUser._id,
+      name: freshUser.name,
+      email: freshUser.email,
+      level: freshUser.level,
+      xp: freshUser.xp,
+      streak: freshUser.streak
     });
   } catch (error) {
     console.error('Error fetching user data:', error);
@@ -276,6 +284,55 @@ router.put('/password', auth, async (req, res) => {
     res.json({ message: 'Password updated successfully' });
   } catch (error) {
     console.error('Error changing password:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Check and update streak on app open
+router.post('/check-streak', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const now = new Date();
+    const lastLogin = user.lastLogin;
+    let streakUpdated = false;
+    let newStreak = user.streak;
+    
+    if (lastLogin) {
+      const lastLoginDate = new Date(lastLogin).setHours(0, 0, 0, 0);
+      const todayDate = new Date().setHours(0, 0, 0, 0);
+      
+      // If last login was yesterday or earlier, and not today
+      if (lastLoginDate < todayDate) {
+        // If last login was yesterday
+        const oneDayMs = 24 * 60 * 60 * 1000;
+        if (todayDate - lastLoginDate <= oneDayMs) {
+          // Increment streak
+          user.streak += 1;
+          newStreak = user.streak;
+          streakUpdated = true;
+        } else {
+          // Streak broken - more than one day gap
+          user.streak = 1;
+          newStreak = 1;
+          streakUpdated = true;
+        }
+      }
+    }
+    
+    // Always update last login time
+    user.lastLogin = now;
+    await user.save();
+    
+    res.json({
+      streakUpdated,
+      streak: newStreak
+    });
+  } catch (error) {
+    console.error('Error updating streak:', error);
     res.status(500).json({ error: 'Server error' });
   }
 });

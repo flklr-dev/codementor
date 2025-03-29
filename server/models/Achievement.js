@@ -28,13 +28,25 @@ const achievementSchema = new mongoose.Schema({
   },
   xpReward: {
     type: Number,
-    default: 50
+    default: 50,
+    required: true
   },
   requirement: {
     type: String,
     required: true
   }
 });
+
+// Add pre-save hook to ensure xpReward is set
+achievementSchema.pre('save', function(next) {
+  if (!this.xpReward) {
+    this.xpReward = 50; // Set default if not provided
+  }
+  next();
+});
+
+// Add a console.log to verify the schema
+console.log('Achievement schema fields:', Object.keys(achievementSchema.paths));
 
 const Achievement = mongoose.model('Achievement', achievementSchema);
 

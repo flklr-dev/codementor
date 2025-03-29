@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, ScrollView, ActivityIndicator } from 'react-native';
+import React, { useEffect, useState, useCallback } from 'react';
+import { StyleSheet, View, ScrollView, ActivityIndicator, RefreshControl } from 'react-native';
 import {
   Text,
   useTheme,
@@ -15,10 +15,14 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { getAllCourses, getCoursesByDifficulty } from '../services/courseService';
-import { useAppSelector } from '../store/hooks';
+import { useAppSelector, useAppDispatch } from '../store/hooks';
+import api from '../services/api';
+import { getUserProgress } from '../services/progressService';
+import LevelUpModal from '../components/LevelUpModal';
+import { updateUserData } from '../store/slices/authSlice';
 
 interface Course {
   _id: string;
@@ -49,6 +53,7 @@ export default function LearnScreen() {
   const [recommendedCourses, setRecommendedCourses] = useState<Course[]>([]);
   
   const { user } = useAppSelector(state => state.auth);
+  const dispatch = useAppDispatch();
 
   // Get first letter of name for avatar
   const avatarText = user?.name ? user.name.charAt(0).toUpperCase() : 'C';
@@ -56,13 +61,13 @@ export default function LearnScreen() {
   // Use the user's name if available
   const userName = user?.name || 'Coder';
 
-  // Update userProgress with the new XP calculation formula
-  const userProgress = {
+  // Replace the userXpData state with this
+  const [userXpData, setUserXpData] = useState({
     level: user?.level || 1,
     xp: user?.xp || 0,
-    nextLevel: 500 + ((user?.level || 1) * 500), // Match the new server-side formula
+    nextLevelXp: 1000,
     streak: user?.streak || 0,
-  };
+  });
 
   const lastLesson = {
     title: "JavaScript Functions",
@@ -105,6 +110,75 @@ export default function LearnScreen() {
     },
   ];
 
+  const [levelUpModalVisible, setLevelUpModalVisible] = useState(false);
+  const [previousLevel, setPreviousLevel] = useState(userXpData.level);
+  const [xpGained, setXpGained] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const refreshUserData = useCallback(async () => {
+    if (!user || !user._id) return;
+    
+    setRefreshing(true);
+    try {
+      console.log('Refreshing user progress for:', user._id);
+      const progressData = await getUserProgress(user._id);
+      console.log('Fresh progress data received:', progressData);
+      
+      if (progressData) {
+        console.log('Setting XP data:', progressData);
+        setUserXpData(prevData => ({
+          level: progressData.level || prevData.level,
+          xp: progressData.xp || prevData.xp,
+          nextLevelXp: progressData.nextLevelXp || prevData.nextLevelXp,
+          streak: progressData.streak || prevData.streak,
+        }));
+      }
+    } catch (error) {
+      console.error('Error refreshing user progress:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [user]);
+
+  // Add a function to force UI update
+  const forceRefresh = async () => {
+    try {
+      // Force refresh from database
+      const response = await api.get(`/auth/me?t=${new Date().getTime()}`);
+      if (response.data) {
+        // Update Redux store
+        dispatch({ 
+          type: 'auth/updateUserData/fulfilled', 
+          payload: response.data 
+        });
+        
+        // Also update local state for immediate UI effect
+        setUserXpData({
+          level: response.data.level || 1,
+          xp: response.data.xp || 0,
+          nextLevelXp: response.data.level * 1000 || 1000,
+          streak: response.data.streak || 0,
+        });
+        
+        console.log('Forced refresh with data:', response.data);
+      }
+    } catch (error) {
+      console.error('Force refresh failed:', error);
+    }
+  };
+
+  // Call this function in useFocusEffect
+  useFocusEffect(
+    useCallback(() => {
+      if (user?._id) {
+        // Use the new force refresh function
+        forceRefresh();
+        // Also refresh progress data
+        refreshUserData();
+      }
+    }, [user?._id])
+  );
+
   useEffect(() => {
     const fetchCourses = async () => {
       try {
@@ -118,9 +192,9 @@ export default function LearnScreen() {
         
         // Get recommended courses based on user level
         let recommendedData;
-        if (userProgress.level <= 2) {
+        if (userXpData.level <= 2) {
           recommendedData = await getCoursesByDifficulty('Beginner');
-        } else if (userProgress.level <= 5) {
+        } else if (userXpData.level <= 5) {
           recommendedData = await getCoursesByDifficulty('Intermediate');
         } else {
           recommendedData = await getCoursesByDifficulty('Advanced');
@@ -136,7 +210,7 @@ export default function LearnScreen() {
     };
 
     fetchCourses();
-  }, [userProgress.level]);
+  }, [userXpData.level]);
 
   // Filter courses based on search query
   const filteredCourses: Course[] = courses.filter(course => 
@@ -147,8 +221,8 @@ export default function LearnScreen() {
 
   // Get recommended courses based on user's level
   const recommendedCoursesFiltered: Course[] = filteredCourses.filter(course => {
-    if (userProgress.level <= 2) return course.difficulty === 'Beginner';
-    if (userProgress.level <= 5) return course.difficulty === 'Intermediate';
+    if (userXpData.level <= 2) return course.difficulty === 'Beginner';
+    if (userXpData.level <= 5) return course.difficulty === 'Intermediate';
     return course.difficulty === 'Advanced';
   }).slice(0, 3);
 
@@ -210,6 +284,29 @@ export default function LearnScreen() {
     }
   }
 
+  useEffect(() => {
+    // Check if user leveled up
+    if (userXpData.level > previousLevel && previousLevel !== 0) {
+      setLevelUpModalVisible(true);
+      setXpGained(userXpData.xp); // This is just an approximation
+    }
+    setPreviousLevel(userXpData.level);
+  }, [userXpData.level]);
+
+  // Update the useEffect to watch for user changes
+  useEffect(() => {
+    if (user) {
+      // Update the local state whenever the Redux user object changes
+      setUserXpData({
+        level: user.level || 1,
+        xp: user.xp || 0, 
+        nextLevelXp: user.level * 1000 || 1000,
+        streak: user.streak || 0,
+      });
+      console.log('Updated userXpData from user:', user);
+    }
+  }, [user]);
+
   return (
     <SafeAreaView style={styles.container}>
       {loading ? (
@@ -218,7 +315,16 @@ export default function LearnScreen() {
           <Text style={styles.loadingText}>Loading courses...</Text>
         </View>
       ) : (
-        <ScrollView style={styles.scrollView}>
+        <ScrollView 
+          style={styles.scrollView}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={refreshUserData}
+              colors={[theme.colors.primary]}
+            />
+          }
+        >
           {/* Hero Section */}
           <LinearGradient
             colors={['#6366F1', '#818CF8']}
@@ -238,20 +344,24 @@ export default function LearnScreen() {
                     size={40}
                     label={avatarText}
                     style={[styles.avatar, { backgroundColor: '#FFFFFF' }]}
-                    labelStyle={{ 
+                    labelStyle={[{ 
                       color: '#6366F1',
+                      fontSize: 20,
+                      fontWeight: 'bold',
                       textAlign: 'center',
+                      includeFontPadding: false,
                       textAlignVertical: 'center',
-                    }}
+                      lineHeight: 40,
+                    }]}
                   />
                 )}
                 <View style={styles.userInfo}>
                   <Text style={styles.userName}>{userName}</Text>
                   <View style={styles.statsRow}>
-                    <Text style={styles.levelText}>Level {userProgress.level}</Text>
+                    <Text style={styles.levelText}>Level {userXpData.level}</Text>
                     <View style={styles.streakContainer}>
                       <View style={styles.streakCircle}>
-                        <Text style={styles.streakText}>{userProgress.streak}</Text>
+                        <Text style={styles.streakText}>{userXpData.streak}</Text>
                         <Ionicons name="flame" size={16} color="#FCD34D" />
                       </View>
                     </View>
@@ -272,19 +382,19 @@ export default function LearnScreen() {
                 <View style={styles.progressHeader}>
                   <Text style={styles.progressLabel}>Experience Points</Text>
                   <Text style={styles.xpText}>
-                    {userProgress.xp}/{userProgress.nextLevel} XP
+                    {userXpData.xp}/{userXpData.nextLevelXp} XP
                   </Text>
                 </View>
                 <View style={styles.progressBarContainer}>
                   <View 
                     style={[
                       styles.progressBarFill,
-                      { width: `${(userProgress.xp / userProgress.nextLevel) * 100}%` }
+                      { width: `${(userXpData.xp / userXpData.nextLevelXp) * 100}%` }
                     ]} 
                   />
                 </View>
                 <Text style={styles.progressSubtext}>
-                  {userProgress.nextLevel - userProgress.xp} XP until next level
+                  {userXpData.nextLevelXp - userXpData.xp} XP until next level
                 </Text>
               </View>
             </View>
@@ -483,6 +593,13 @@ export default function LearnScreen() {
         }}>
         {error}
       </Snackbar>
+
+      <LevelUpModal
+        visible={levelUpModalVisible}
+        onClose={() => setLevelUpModalVisible(false)}
+        newLevel={userXpData.level}
+        xpGained={xpGained}
+      />
     </SafeAreaView>
   );
 }

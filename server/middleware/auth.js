@@ -13,18 +13,21 @@ const auth = async (req, res, next) => {
     
     // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log('Decoded token:', decoded);
     
     const user = await User.findById(decoded.userId);
+    console.log('Found user:', user ? user._id : 'none');
 
     if (!user) {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // Add user data to request - FIXING INCONSISTENT ID REFERENCE
+    // Add user data to request - ENSURING CONSISTENT ID REFERENCE
     req.user = user;
-    req.userId = user._id; // Add this consistently
-    req.user._id = user._id; // Ensure this is always set
+    req.userId = user._id.toString(); // Add this consistently as string
+    req.user._id = user._id; // Keep as ObjectId for any MongoDB operations
     
+    console.log('Auth middleware set user ID:', req.userId);
     next();
   } catch (error) {
     console.error('Auth middleware error:', error);

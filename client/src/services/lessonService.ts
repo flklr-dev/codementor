@@ -30,6 +30,10 @@ export const completeLessonAndUpdateXP = async (lessonId: string) => {
     console.log(`Marking lesson ${lessonId} as complete`);
     const response = await api.post(`/lessons/${lessonId}/complete`);
     console.log('Completion response:', response.data);
+    
+    // Clear any user-related cache
+    await AsyncStorage.removeItem('userData');
+    
     return response.data;
   } catch (error) {
     console.error('Error completing lesson:', error);

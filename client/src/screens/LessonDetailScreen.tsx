@@ -24,6 +24,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../services/api';
 import { Animated as RNAnimated } from 'react-native';
+import { useAppDispatch } from '../store/hooks';
+import { updateUserData } from '../store/slices/authSlice';
 
 type RootStackParamList = {
   Home: undefined;
@@ -67,6 +69,7 @@ export default function LessonDetailScreen() {
   const [earnedXp, setEarnedXp] = useState(0);
   const [xpScaleAnim] = useState(new RNAnimated.Value(1));
   const [textFadeAnim] = useState(new RNAnimated.Value(0));
+  const dispatch = useAppDispatch();
 
   useEffect(() => {
     const fetchLesson = async () => {
@@ -221,6 +224,10 @@ export default function LessonDetailScreen() {
         // Show XP celebration
         setEarnedXp(result.xpEarned || 0);
         setShowXpCelebration(true);
+        
+        // Update user data in Redux store
+        await dispatch(updateUserData());
+        
         // Trigger animation after dialog is visible
         setTimeout(animateXpCelebration, 100);
       }
