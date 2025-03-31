@@ -16,6 +16,13 @@ import { ActivityIndicator, View } from 'react-native';
 
 const Stack = createNativeStackNavigator();
 
+type RootStackParamList = {
+  Home: undefined;
+  CourseDetail: { courseId: string; lessonCompleted?: boolean; xpEarned?: number };
+  LessonDetail: { lessonId: string };
+  CoursesCategory: { difficulty?: string; tag?: string; title: string };
+};
+
 function AppContent() {
   const dispatch = useAppDispatch();
   const { token, user } = useAppSelector(state => state.auth);

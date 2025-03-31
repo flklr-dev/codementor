@@ -9,6 +9,7 @@ const coursesRoutes = require('./routes/courses');
 const lessonsRoutes = require('./routes/lessons');
 const progressRoutes = require('./routes/progress');
 const trackingRoutes = require('./routes/tracking');
+const quizRoutes = require('./routes/quiz');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -29,6 +30,7 @@ app.use('/api/mentor', mentorRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/courses', coursesRoutes);
 app.use('/api/lessons', lessonsRoutes);
+app.use('/api/quizzes', quizRoutes);
 app.use('/api', progressRoutes);
 app.use('/api', trackingRoutes);
 

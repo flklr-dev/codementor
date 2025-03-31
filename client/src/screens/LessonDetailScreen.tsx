@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import { StyleSheet, View, ScrollView, ActivityIndicator, Alert, TouchableOpacity, ViewStyle, TextStyle } from 'react-native';
 import {
   Text,
   Card,
@@ -24,15 +24,21 @@ import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../services/api';
 import { Animated as RNAnimated } from 'react-native';
-import { useAppDispatch } from '../store/hooks';
+import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { updateUserData } from '../store/slices/authSlice';
 
 type RootStackParamList = {
   Home: undefined;
-  CourseDetail: { courseId: string; lessonCompleted?: boolean; xpEarned?: number };
+  CourseDetail: { 
+    courseId: string; 
+    lessonCompleted?: boolean; 
+    xpEarned?: number;
+    quizCompleted?: boolean;
+  };
   LessonDetail: { lessonId: string };
   CoursesCategory: { difficulty?: string; tag?: string; title: string };
   LessonList: { type: string; title: string; color: string; courseId: string };
+  Quiz: { courseId: string };
 };
 
 interface Lesson {
@@ -47,7 +53,64 @@ interface Lesson {
   duration: number;
   topic: string;
   order: number;
-  courseId?: string;
+  courseId: string;
+  accessible?: boolean;
+}
+
+interface Quiz {
+  _id: string;
+  questions: Array<{
+    question: string;
+    options: string[];
+    correctAnswer: number;
+  }>;
+  xpReward: number;
+}
+
+// Define the style types
+interface Styles {
+  container: ViewStyle;
+  headerGradient: ViewStyle;
+  header: ViewStyle;
+  headerTitle: TextStyle;
+  scrollView: ViewStyle;
+  titleCard: ViewStyle;
+  lessonTitle: TextStyle;
+  topicChip: ViewStyle;
+  topicChipText: TextStyle;
+  metaInfo: ViewStyle;
+  metaItem: ViewStyle;
+  metaText: TextStyle;
+  contentCard: ViewStyle;
+  sectionTitleContainer: ViewStyle;
+  sectionTitleGradient: ViewStyle;
+  sectionTitle: TextStyle;
+  sectionText: TextStyle;
+  codeBlock: ViewStyle;
+  codeHeader: ViewStyle;
+  codeLanguage: TextStyle;
+  codeContent: TextStyle;
+  imageContainer: ViewStyle;
+  imagePlaceholderGradient: ViewStyle;
+  imagePlaceholder: TextStyle;
+  imageCaption: TextStyle;
+  navigationButtonsContainer: ViewStyle;
+  navButton: ViewStyle;
+  navButtonContent: ViewStyle;
+  navButtonLabel: TextStyle;
+  snackbar: ViewStyle;
+  bottomPadding: ViewStyle;
+  loadingContainer: ViewStyle;
+  loadingText: TextStyle;
+  errorContainer: ViewStyle;
+  errorText: TextStyle;
+  xpDialog: ViewStyle;
+  xpContainer: ViewStyle;
+  xpGradient: ViewStyle;
+  xpBadge: ViewStyle;
+  xpAmount: TextStyle;
+  xpLabel: TextStyle;
+  xpText: TextStyle;
 }
 
 export default function LessonDetailScreen() {
@@ -70,6 +133,13 @@ export default function LessonDetailScreen() {
   const [xpScaleAnim] = useState(new RNAnimated.Value(1));
   const [textFadeAnim] = useState(new RNAnimated.Value(0));
   const dispatch = useAppDispatch();
+  const [isLastLesson, setIsLastLesson] = useState(false);
+  const [quiz, setQuiz] = useState<Quiz | null>(null);
+  const [showQuiz, setShowQuiz] = useState(false);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [selectedAnswers, setSelectedAnswers] = useState<number[]>([]);
+  const user = useAppSelector(state => state.auth.user);
+  const [quizStatus, setQuizStatus] = useState<{ completed: boolean; passed: boolean } | null>(null);
 
   useEffect(() => {
     const fetchLesson = async () => {
@@ -79,24 +149,26 @@ export default function LessonDetailScreen() {
         console.log("Lesson data received:", JSON.stringify(data));
         setLesson(data);
         
-        // Set progress and completion status from server data
-        setProgress(data.progress || 0);
-        setIsCompleted(data.completed || data.progress >= 1);
-        
-        // Fetch course to find next lesson
-        if (data.courseId) {
-          const courseData = await getCourseWithLessons(data.courseId);
-          if (courseData && courseData.lessons && courseData.lessons.length > 0) {
-            // Sort lessons by order if available
-            const sortedLessons = [...courseData.lessons].sort((a, b) => 
-              (a.order || 0) - (b.order || 0)
-            );
-            
-            // Find current lesson index
-            const currentIndex = sortedLessons.findIndex(l => l._id === lessonId);
-            if (currentIndex !== -1 && currentIndex < sortedLessons.length - 1) {
-              // Set next lesson ID
-              setNextLessonId(sortedLessons[currentIndex + 1]._id);
+        // If lesson is not accessible, don't set progress or completion status
+        if (data.accessible) {
+          setProgress(data.progress || 0);
+          setIsCompleted(data.completed || data.progress >= 1);
+          
+          // Fetch course to find next lesson
+          if (data.courseId) {
+            const courseData = await getCourseWithLessons(data.courseId);
+            if (courseData && courseData.lessons && courseData.lessons.length > 0) {
+              // Sort lessons by order if available
+              const sortedLessons = [...courseData.lessons].sort((a, b) => 
+                (a.order || 0) - (b.order || 0)
+              );
+              
+              // Find current lesson index
+              const currentIndex = sortedLessons.findIndex(l => l._id === lessonId);
+              if (currentIndex !== -1 && currentIndex < sortedLessons.length - 1) {
+                // Set next lesson ID
+                setNextLessonId(sortedLessons[currentIndex + 1]._id);
+              }
             }
           }
         }
@@ -112,8 +184,100 @@ export default function LessonDetailScreen() {
     fetchLesson();
   }, [lessonId]);
 
+  useEffect(() => {
+    const checkIfLastLesson = async () => {
+      if (lesson?.courseId) {
+        try {
+          const courseData = await getCourseWithLessons(lesson.courseId);
+          console.log('Course data received:', courseData);
+          
+          if (courseData && courseData.lessons) {
+            const sortedLessons = [...courseData.lessons].sort((a, b) => 
+              (a.order || 0) - (b.order || 0)
+            );
+            const isLast = sortedLessons[sortedLessons.length - 1]._id === lessonId;
+            console.log('Is last lesson:', isLast);
+            setIsLastLesson(isLast);
+            
+            // If it's the last lesson, fetch the quiz
+            if (isLast) {
+              try {
+                const courseId = lesson.courseId as string;
+                console.log('Fetching quiz for course:', courseId);
+                const response = await api.get(`/quizzes/course/${courseId}`);
+                console.log('Quiz data received:', response.data);
+                setQuiz(response.data);
+              } catch (error: any) {
+                console.error('Error fetching quiz:', error.response?.data || error.message);
+                if (error.response?.status === 404) {
+                  setSnackbarMessage('No quiz available for this course yet.');
+                } else {
+                  setSnackbarMessage('Error loading quiz. Please try again.');
+                }
+                setShowSnackbar(true);
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error checking last lesson:', error);
+          setSnackbarMessage('Error loading course data. Please try again.');
+          setShowSnackbar(true);
+        }
+      }
+    };
+
+    if (lesson) {
+      checkIfLastLesson();
+    }
+  }, [lesson, lessonId]);
+
+  useEffect(() => {
+    const checkQuizStatus = async () => {
+      if (isLastLesson && lesson?.courseId) {
+        try {
+          const response = await api.get(`/quizzes/status/${lesson.courseId}`);
+          setQuizStatus(response.data);
+        } catch (error) {
+          console.error('Error checking quiz status:', error);
+        }
+      }
+    };
+
+    if (isLastLesson) {
+      checkQuizStatus();
+    }
+  }, [isLastLesson, lesson?.courseId]);
+
+  useEffect(() => {
+    if (!lesson?.accessible) {
+      // If lesson is not accessible, show message and navigate back
+      Alert.alert(
+        "Lesson Locked",
+        "Please complete the previous lesson first to unlock this one.",
+        [
+          {
+            text: "OK",
+            onPress: () => {
+              if (lesson?.courseId) {
+                navigation.navigate('CourseDetail', { courseId: lesson.courseId });
+              } else {
+                navigation.goBack();
+              }
+            }
+          }
+        ]
+      );
+    }
+  }, [lesson?.accessible]);
+
   // Function to update lesson progress
   const handleUpdateProgress = async (newProgress: number) => {
+    if (!lesson?.accessible) {
+      setSnackbarMessage('This lesson is locked. Complete the previous lesson first.');
+      setShowSnackbar(true);
+      return;
+    }
+
     try {
       console.log('Updating progress:', lessonId, newProgress);
       
@@ -177,6 +341,11 @@ export default function LessonDetailScreen() {
 
   // Mark lesson as complete
   const markAsComplete = () => {
+    if (!lesson?.accessible) {
+      setSnackbarMessage('This lesson is locked. Complete the previous lesson first.');
+      setShowSnackbar(true);
+      return;
+    }
     setConfirmDialogVisible(true);
   };
 
@@ -238,31 +407,95 @@ export default function LessonDetailScreen() {
     }
   };
 
-  // Simplify the animation function
+  // Replace the existing animateXpCelebration function with this improved version
   const animateXpCelebration = () => {
     // Reset animation values
-    xpScaleAnim.setValue(0.5);
+    xpScaleAnim.setValue(0.2);
     textFadeAnim.setValue(0);
     
-    // Simple scale up animation for the XP badge (just 1 second)
-    RNAnimated.timing(xpScaleAnim, {
+    // Create a spring animation for the XP badge
+    RNAnimated.spring(xpScaleAnim, {
       toValue: 1,
-      duration: 500, // Half a second
+      tension: 50,
+      friction: 7,
       useNativeDriver: true,
     }).start();
     
-    // Quick fade in for text
-    RNAnimated.timing(textFadeAnim, {
-      toValue: 1,
-      duration: 300, // 0.3 seconds
-      useNativeDriver: true,
-    }).start();
+    // Create a sequence for the text fade in
+    RNAnimated.sequence([
+      RNAnimated.delay(300),
+      RNAnimated.timing(textFadeAnim, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      })
+    ]).start();
     
-    // Auto-dismiss after 2 seconds but stay on the same screen
+    // Auto-dismiss after 2.5 seconds
     setTimeout(() => {
       setShowXpCelebration(false);
-      // Don't navigate away - just close the dialog
-    }, 2000); // 2 seconds total display time
+      if (isLastLesson && !quizStatus?.passed) {
+        handleStartQuiz();
+      } else if (nextLessonId) {
+        continueToNextLesson();
+      }
+    }, 2500);
+  };
+
+  // Add these functions to handle quiz
+  const handleStartQuiz = () => {
+    if (lesson?.courseId) {
+      navigation.navigate('Quiz', { courseId: lesson.courseId });
+    }
+  };
+
+  const handleAnswerSelect = (answerIndex: number) => {
+    const newAnswers = [...selectedAnswers];
+    newAnswers[currentQuestionIndex] = answerIndex;
+    setSelectedAnswers(newAnswers);
+  };
+
+  const handleNextQuestion = () => {
+    if (currentQuestionIndex < (quiz?.questions.length || 0) - 1) {
+      setCurrentQuestionIndex(prev => prev + 1);
+    }
+  };
+
+  const handleSubmitQuiz = async () => {
+    if (!quiz || !user || !lesson) return;
+
+    try {
+      const response = await api.post('/quizzes/submit', {
+        quizId: quiz._id,
+        courseId: lesson.courseId,
+        answers: selectedAnswers
+      });
+
+      if (response.data.success) {
+        // Show completion dialog with earned XP
+        setEarnedXp(response.data.xpEarned);
+        setShowXpCelebration(true);
+        
+        // Update user data in Redux store
+        await dispatch(updateUserData());
+        
+        // Navigate back to course with quiz completion state
+        setTimeout(() => {
+          navigation.navigate('CourseDetail', { 
+            courseId: lesson.courseId,
+            quizCompleted: true,
+            xpEarned: response.data.xpEarned
+          });
+        }, 2000);
+      } else {
+        setSnackbarMessage(response.data.message || 'Quiz completed, but score was too low to pass. Try again!');
+        setShowSnackbar(true);
+      }
+    } catch (error: any) {
+      console.error('Error submitting quiz:', error.response?.data || error.message);
+      setSnackbarMessage('Error submitting quiz. Please try again.');
+      setShowSnackbar(true);
+    }
   };
 
   if (loading) {
@@ -461,6 +694,30 @@ export default function LessonDetailScreen() {
             >
               Mark Complete
             </Button>
+          ) : isLastLesson ? (
+            quizStatus?.passed ? (
+              <Button 
+                mode="contained" 
+                style={[styles.navButton, {backgroundColor: '#22C55E'}]}
+                contentStyle={styles.navButtonContent}
+                labelStyle={styles.navButtonLabel}
+                icon="check-circle"
+                disabled
+              >
+                Quiz Passed
+              </Button>
+            ) : (
+              <Button 
+                mode="contained" 
+                style={[styles.navButton, {backgroundColor: '#22C55E'}]}
+                contentStyle={styles.navButtonContent}
+                labelStyle={styles.navButtonLabel}
+                icon="school"
+                onPress={handleStartQuiz}
+              >
+                Take Quiz
+              </Button>
+            )
           ) : (
             <Button 
               mode="contained" 
@@ -512,17 +769,16 @@ export default function LessonDetailScreen() {
           onDismiss={() => setShowXpCelebration(false)}
           style={styles.xpDialog}
         >
-          <View style={styles.xpCelebrationContainer}>
+          <View style={styles.xpContainer}>
             <LinearGradient
-              colors={['#F59E0B', '#FBBF24']}
+              colors={['#F59E0B', '#FBBF24', '#FCD34D']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
-              style={styles.xpCelebrationGradient}
+              style={styles.xpGradient}
             >
-              {/* Simplified XP badge */}
               <RNAnimated.View 
                 style={[
-                  styles.xpBadge, 
+                  styles.xpBadge,
                   { transform: [{ scale: xpScaleAnim }] }
                 ]}
               >
@@ -530,14 +786,13 @@ export default function LessonDetailScreen() {
                 <Text style={styles.xpLabel}>XP</Text>
               </RNAnimated.View>
               
-              {/* Simple completion message */}
               <RNAnimated.Text 
                 style={[
-                  styles.congratsText, 
+                  styles.xpText,
                   { opacity: textFadeAnim }
                 ]}
               >
-                Lesson Complete
+                Lesson Complete!
               </RNAnimated.Text>
             </LinearGradient>
           </View>
@@ -547,7 +802,7 @@ export default function LessonDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = StyleSheet.create<Styles>({
   container: {
     flex: 1,
   },
@@ -735,12 +990,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     elevation: 0,
   },
-  xpCelebrationContainer: {
+  xpContainer: {
     borderRadius: 16,
     overflow: 'hidden',
     margin: 24,
   },
-  xpCelebrationGradient: {
+  xpGradient: {
     width: '100%',
     padding: 32,
     alignItems: 'center',
@@ -748,33 +1003,36 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
   xpBadge: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 24,
-    elevation: 4,
+    elevation: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
   xpAmount: {
-    fontSize: 32,
+    fontSize: 36,
     fontWeight: 'bold',
     color: '#F59E0B',
   },
   xpLabel: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#F59E0B',
     marginTop: -4,
   },
-  congratsText: {
-    fontSize: 20,
+  xpText: {
+    fontSize: 24,
     fontWeight: '600',
     color: '#FFFFFF',
-  },
-}); 
+    textShadowColor: 'rgba(0, 0, 0, 0.2)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
+  }
+} as const); 

@@ -6,7 +6,12 @@ export const getLessonById = async (lessonId: string) => {
     // Add cache-busting parameter to avoid stale data
     const timestamp = new Date().getTime();
     const response = await api.get(`/lessons/${lessonId}?t=${timestamp}`);
-    return response.data;
+    
+    // Add accessibility check to the response data
+    const data = response.data;
+    console.log('Lesson data with accessibility:', data);
+    
+    return data;
   } catch (error) {
     console.error('Error fetching lesson by ID:', error);
     throw error;

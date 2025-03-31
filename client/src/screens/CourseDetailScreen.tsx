@@ -260,12 +260,21 @@ export default function CourseDetailScreen() {
             
             <Button 
               mode="contained" 
-              onPress={() => navigation.navigate('LessonList', {
-                type: 'course',
-                title: course?.title || '',
-                color: getCourseIconColor(course?.title || ''),
-                courseId: course?._id || '',
-              })}
+              onPress={() => {
+                if (progress === 0) {
+                  // Start Learning - go to first lesson
+                  const firstLesson = course?.lessons[0];
+                  if (firstLesson) {
+                    navigation.navigate('LessonDetail', { lessonId: firstLesson._id });
+                  }
+                } else {
+                  // Continue Learning - go to first incomplete lesson
+                  const firstIncompleteLesson = course?.lessons.find(lesson => !lesson.completed);
+                  if (firstIncompleteLesson) {
+                    navigation.navigate('LessonDetail', { lessonId: firstIncompleteLesson._id });
+                  }
+                }
+              }}
               style={styles.startButton}
               contentStyle={{height: 48}}
               labelStyle={{fontSize: 16, fontWeight: 'bold'}}

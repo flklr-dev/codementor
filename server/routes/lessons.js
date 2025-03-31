@@ -27,11 +27,16 @@ router.get('/:lessonId', auth, async (req, res) => {
     
     const userId = req.user._id;
     
-    // Get user progress for this lesson
+    // Get all lessons from the course
+    const courseLessons = await Lesson.find({ courseId: lesson.courseId }).sort({ order: 1 });
+    const currentLessonIndex = courseLessons.findIndex(l => l._id.toString() === req.params.lessonId);
+    
+    // Get user progress
     const userProgress = await UserProgress.findOne({ userId });
     
     let progress = 0;
     let completed = false;
+    let accessible = currentLessonIndex === 0; // First lesson is always accessible
     
     if (userProgress) {
       // Check if lesson is completed
@@ -47,14 +52,23 @@ router.get('/:lessonId', auth, async (req, res) => {
       } else if (completed) {
         progress = 1;
       }
+
+      // Check if previous lesson is completed (for accessibility)
+      if (currentLessonIndex > 0) {
+        const previousLesson = courseLessons[currentLessonIndex - 1];
+        accessible = userProgress.completedLessons.some(
+          completedLesson => completedLesson.lessonId.toString() === previousLesson._id.toString()
+        );
+      }
     }
     
-    console.log(`Lesson ${req.params.lessonId} - Progress: ${progress}, Completed: ${completed}`);
+    console.log(`Lesson ${req.params.lessonId} - Progress: ${progress}, Completed: ${completed}, Accessible: ${accessible}`);
     
     res.json({
       ...lesson.toObject(),
       progress,
-      completed
+      completed,
+      accessible
     });
   } catch (error) {
     console.error('Error fetching lesson:', error);
@@ -236,6 +250,43 @@ router.post('/:lessonId/complete', auth, async (req, res) => {
       error: 'Failed to complete lesson',
       details: error.message 
     });
+  }
+});
+
+// Check if lesson is accessible
+router.get('/:lessonId/access', auth, async (req, res) => {
+  try {
+    const lesson = await Lesson.findById(req.params.lessonId);
+    if (!lesson) {
+      return res.status(404).json({ error: 'Lesson not found' });
+    }
+
+    // Get all lessons from the course
+    const courseLessons = await Lesson.find({ courseId: lesson.courseId }).sort({ order: 1 });
+    const currentLessonIndex = courseLessons.findIndex(l => l._id.toString() === req.params.lessonId);
+    
+    // If it's the first lesson, it's always accessible
+    if (currentLessonIndex === 0) {
+      return res.json({ accessible: true });
+    }
+
+    // Get user progress
+    const userProgress = await UserProgress.findOne({ userId: req.user._id });
+    if (!userProgress) {
+      // If no progress found, only first lesson is accessible
+      return res.json({ accessible: false });
+    }
+
+    // Check if previous lesson is completed
+    const previousLesson = courseLessons[currentLessonIndex - 1];
+    const isPreviousLessonCompleted = userProgress.completedLessons.some(
+      completedLesson => completedLesson.lessonId.toString() === previousLesson._id.toString()
+    );
+
+    res.json({ accessible: isPreviousLessonCompleted });
+  } catch (error) {
+    console.error('Error checking lesson access:', error);
+    res.status(500).json({ error: 'Failed to check lesson access' });
   }
 });
 
