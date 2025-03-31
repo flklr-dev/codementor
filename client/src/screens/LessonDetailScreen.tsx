@@ -54,7 +54,6 @@ interface Lesson {
   topic: string;
   order: number;
   courseId: string;
-  accessible?: boolean;
 }
 
 interface Quiz {
@@ -111,6 +110,11 @@ interface Styles {
   xpAmount: TextStyle;
   xpLabel: TextStyle;
   xpText: TextStyle;
+  lockedContainer: ViewStyle;
+  lockedContent: ViewStyle;
+  lockedTitle: TextStyle;
+  lockedText: TextStyle;
+  backButton: ViewStyle;
 }
 
 export default function LessonDetailScreen() {
@@ -140,6 +144,8 @@ export default function LessonDetailScreen() {
   const [selectedAnswers, setSelectedAnswers] = useState<number[]>([]);
   const user = useAppSelector(state => state.auth.user);
   const [quizStatus, setQuizStatus] = useState<{ completed: boolean; passed: boolean } | null>(null);
+  const [canAccess, setCanAccess] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const fetchLesson = async () => {
@@ -149,26 +155,24 @@ export default function LessonDetailScreen() {
         console.log("Lesson data received:", JSON.stringify(data));
         setLesson(data);
         
-        // If lesson is not accessible, don't set progress or completion status
-        if (data.accessible) {
-          setProgress(data.progress || 0);
-          setIsCompleted(data.completed || data.progress >= 1);
-          
-          // Fetch course to find next lesson
-          if (data.courseId) {
-            const courseData = await getCourseWithLessons(data.courseId);
-            if (courseData && courseData.lessons && courseData.lessons.length > 0) {
-              // Sort lessons by order if available
-              const sortedLessons = [...courseData.lessons].sort((a, b) => 
-                (a.order || 0) - (b.order || 0)
-              );
-              
-              // Find current lesson index
-              const currentIndex = sortedLessons.findIndex(l => l._id === lessonId);
-              if (currentIndex !== -1 && currentIndex < sortedLessons.length - 1) {
-                // Set next lesson ID
-                setNextLessonId(sortedLessons[currentIndex + 1]._id);
-              }
+        // Set progress and completion status from server data
+        setProgress(data.progress || 0);
+        setIsCompleted(data.completed || data.progress >= 1);
+        
+        // Fetch course to find next lesson
+        if (data.courseId) {
+          const courseData = await getCourseWithLessons(data.courseId);
+          if (courseData && courseData.lessons && courseData.lessons.length > 0) {
+            // Sort lessons by order if available
+            const sortedLessons = [...courseData.lessons].sort((a, b) => 
+              (a.order || 0) - (b.order || 0)
+            );
+            
+            // Find current lesson index
+            const currentIndex = sortedLessons.findIndex(l => l._id === lessonId);
+            if (currentIndex !== -1 && currentIndex < sortedLessons.length - 1) {
+              // Set next lesson ID
+              setNextLessonId(sortedLessons[currentIndex + 1]._id);
             }
           }
         }
@@ -249,35 +253,46 @@ export default function LessonDetailScreen() {
   }, [isLastLesson, lesson?.courseId]);
 
   useEffect(() => {
-    if (!lesson?.accessible) {
-      // If lesson is not accessible, show message and navigate back
-      Alert.alert(
-        "Lesson Locked",
-        "Please complete the previous lesson first to unlock this one.",
-        [
-          {
-            text: "OK",
-            onPress: () => {
-              if (lesson?.courseId) {
-                navigation.navigate('CourseDetail', { courseId: lesson.courseId });
-              } else {
-                navigation.goBack();
-              }
-            }
+    const checkLessonAccess = async () => {
+      if (!lesson?.courseId) return;
+      
+      try {
+        const courseData = await getCourseWithLessons(lesson.courseId);
+        if (courseData && courseData.lessons) {
+          const sortedLessons = [...courseData.lessons].sort((a, b) => 
+            (a.order || 0) - (b.order || 0)
+          );
+          
+          // Find current lesson index
+          const currentIndex = sortedLessons.findIndex(l => l._id === lessonId);
+          
+          // First lesson is always accessible
+          if (currentIndex === 0) {
+            setCanAccess(true);
+            setIsLoading(false);
+            return;
           }
-        ]
-      );
-    }
-  }, [lesson?.accessible]);
+          
+          // Check if previous lesson exists and is completed
+          if (currentIndex > 0) {
+            const previousLesson = sortedLessons[currentIndex - 1];
+            const response = await api.get(`/lessons/${previousLesson._id}/progress`);
+            setCanAccess(response.data.completed);
+          }
+        }
+        setIsLoading(false);
+      } catch (error) {
+        console.error('Error checking lesson access:', error);
+        setIsLoading(false);
+        setError('Failed to check lesson access');
+      }
+    };
+
+    checkLessonAccess();
+  }, [lessonId, lesson?.courseId]);
 
   // Function to update lesson progress
   const handleUpdateProgress = async (newProgress: number) => {
-    if (!lesson?.accessible) {
-      setSnackbarMessage('This lesson is locked. Complete the previous lesson first.');
-      setShowSnackbar(true);
-      return;
-    }
-
     try {
       console.log('Updating progress:', lessonId, newProgress);
       
@@ -341,11 +356,6 @@ export default function LessonDetailScreen() {
 
   // Mark lesson as complete
   const markAsComplete = () => {
-    if (!lesson?.accessible) {
-      setSnackbarMessage('This lesson is locked. Complete the previous lesson first.');
-      setShowSnackbar(true);
-      return;
-    }
     setConfirmDialogVisible(true);
   };
 
@@ -498,7 +508,7 @@ export default function LessonDetailScreen() {
     }
   };
 
-  if (loading) {
+  if (loading || isLoading) {
     return (
       <SafeAreaView style={[styles.container, {backgroundColor: theme.colors.background}]}>
         <LinearGradient
@@ -558,6 +568,46 @@ export default function LessonDetailScreen() {
           >
             Go Back
           </Button>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!canAccess) {
+    return (
+      <SafeAreaView style={[styles.container, {backgroundColor: theme.colors.background}]}>
+        <LinearGradient
+          colors={['#6366F1', '#818CF8']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.headerGradient}
+        >
+          <View style={styles.header}>
+            <IconButton
+              icon="arrow-left"
+              size={24}
+              onPress={handleBackNavigation}
+              iconColor="#FFFFFF"
+            />
+            <Text style={styles.headerTitle}>{lesson?.title || 'Lesson'}</Text>
+            <View style={{ width: 40 }} />
+          </View>
+        </LinearGradient>
+        <View style={styles.lockedContainer}>
+          <View style={styles.lockedContent}>
+            <Ionicons name="lock-closed" size={64} color="#6B7280" />
+            <Text style={styles.lockedTitle}>Lesson Locked</Text>
+            <Text style={styles.lockedText}>
+              Complete the previous lesson to unlock this content.
+            </Text>
+            <Button 
+              mode="contained" 
+              onPress={handleBackNavigation}
+              style={styles.backButton}
+            >
+              Go Back
+            </Button>
+          </View>
         </View>
       </SafeAreaView>
     );
@@ -1034,5 +1084,40 @@ const styles = StyleSheet.create<Styles>({
     textShadowColor: 'rgba(0, 0, 0, 0.2)',
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 4,
-  }
+  },
+  lockedContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  lockedContent: {
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    padding: 32,
+    borderRadius: 16,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  lockedTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  lockedText: {
+    fontSize: 16,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 24,
+  },
+  backButton: {
+    borderRadius: 12,
+    backgroundColor: '#6366F1',
+  },
 } as const); 
