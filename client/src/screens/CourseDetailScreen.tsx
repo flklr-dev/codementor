@@ -114,23 +114,16 @@ export default function CourseDetailScreen() {
   if (loading) {
     return (
       <SafeAreaView style={[styles.container, {backgroundColor: theme.colors.background}]}>
-        <LinearGradient
-          colors={['#6366F1', '#818CF8']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.headerGradient}
-        >
-          <View style={styles.header}>
-            <IconButton
-              icon="arrow-left"
-              size={24}
-              onPress={() => navigation.goBack()}
-              iconColor="#FFFFFF"
-            />
-            <Text style={styles.headerTitle}>Course Details</Text>
-            <View style={{ width: 40 }} />
-          </View>
-        </LinearGradient>
+        <View style={[styles.header, { backgroundColor: '#6366F1' }]}>
+          <IconButton
+            icon="arrow-left"
+            size={24}
+            onPress={() => navigation.goBack()}
+            iconColor="#FFFFFF"
+          />
+          <Text style={styles.headerTitle}>Course Details</Text>
+          <View style={{ width: 40 }} />
+        </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#6366F1" />
           <Text style={styles.loadingText}>Loading course details...</Text>
@@ -142,23 +135,16 @@ export default function CourseDetailScreen() {
   if (error) {
     return (
       <SafeAreaView style={[styles.container, {backgroundColor: theme.colors.background}]}>
-        <LinearGradient
-          colors={['#6366F1', '#818CF8']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.headerGradient}
-        >
-          <View style={styles.header}>
-            <IconButton
-              icon="arrow-left"
-              size={24}
-              onPress={() => navigation.goBack()}
-              iconColor="#FFFFFF"
-            />
-            <Text style={styles.headerTitle}>Course Details</Text>
-            <View style={{ width: 40 }} />
-          </View>
-        </LinearGradient>
+        <View style={[styles.header, { backgroundColor: '#6366F1' }]}>
+          <IconButton
+            icon="arrow-left"
+            size={24}
+            onPress={() => navigation.goBack()}
+            iconColor="#FFFFFF"
+          />
+          <Text style={styles.headerTitle}>Course Details</Text>
+          <View style={{ width: 40 }} />
+        </View>
         <View style={styles.errorContainer}>
           <Ionicons name="alert-circle-outline" size={64} color="#EF4444" />
           <Text style={styles.errorText}>{error}</Text>
@@ -176,23 +162,16 @@ export default function CourseDetailScreen() {
 
   return (
     <SafeAreaView style={[styles.container, {backgroundColor: theme.colors.background}]}>
-      <LinearGradient
-        colors={['#6366F1', '#818CF8']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.headerGradient}
-      >
-        <View style={styles.header}>
-          <IconButton
-            icon="arrow-left"
-            size={24}
-            onPress={() => navigation.goBack()}
-            iconColor="#FFFFFF"
-          />
-          <Text style={styles.headerTitle}>Course Details</Text>
-          <View style={{ width: 40 }} />
-        </View>
-      </LinearGradient>
+      <View style={[styles.header, { backgroundColor: '#6366F1' }]}>
+        <IconButton
+          icon="arrow-left"
+          size={24}
+          onPress={() => navigation.goBack()}
+          iconColor="#FFFFFF"
+        />
+        <Text style={styles.headerTitle}>Course Details</Text>
+        <View style={{ width: 40 }} />
+      </View>
 
       <ScrollView style={styles.scrollView}>
         {/* Course Hero Section */}
@@ -395,16 +374,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  headerGradient: {
-    paddingTop: 8,
-    paddingBottom: 8,
-  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 8,
-    paddingVertical: 8,
+    paddingVertical: 16,
   },
   headerTitle: {
     fontSize: 20,
@@ -680,7 +655,7 @@ function getDifficultyTextColor(difficulty: string): string {
     case 'beginner':
       return '#22C55E';
     case 'intermediate':
-      return '#3B82F6';
+      return '#6366F1';
     case 'advanced':
       return '#8B5CF6';
     default:

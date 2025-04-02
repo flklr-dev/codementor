@@ -511,23 +511,16 @@ export default function LessonDetailScreen() {
   if (loading || isLoading) {
     return (
       <SafeAreaView style={[styles.container, {backgroundColor: theme.colors.background}]}>
-        <LinearGradient
-          colors={['#6366F1', '#818CF8']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.headerGradient}
-        >
-          <View style={styles.header}>
-            <IconButton
-              icon="arrow-left"
-              size={24}
-              onPress={handleBackNavigation}
-              iconColor="#FFFFFF"
-            />
-            <Text style={styles.headerTitle}>Lesson</Text>
-            <View style={{ width: 40 }} />
-          </View>
-        </LinearGradient>
+        <View style={[styles.header, { backgroundColor: '#6366F1' }]}>
+          <IconButton
+            icon="arrow-left"
+            size={24}
+            onPress={handleBackNavigation}
+            iconColor="#FFFFFF"
+          />
+          <Text style={styles.headerTitle}>Lesson</Text>
+          <View style={{ width: 40 }} />
+        </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#6366F1" />
           <Text style={[styles.loadingText, {color: theme.colors.onSurfaceVariant}]}>
@@ -541,23 +534,16 @@ export default function LessonDetailScreen() {
   if (error || !lesson) {
     return (
       <SafeAreaView style={[styles.container, {backgroundColor: theme.colors.background}]}>
-        <LinearGradient
-          colors={['#6366F1', '#818CF8']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.headerGradient}
-        >
-          <View style={styles.header}>
-            <IconButton
-              icon="arrow-left"
-              size={24}
-              onPress={handleBackNavigation}
-              iconColor="#FFFFFF"
-            />
-            <Text style={styles.headerTitle}>Lesson</Text>
-            <View style={{ width: 40 }} />
-          </View>
-        </LinearGradient>
+        <View style={[styles.header, { backgroundColor: '#6366F1' }]}>
+          <IconButton
+            icon="arrow-left"
+            size={24}
+            onPress={handleBackNavigation}
+            iconColor="#FFFFFF"
+          />
+          <Text style={styles.headerTitle}>Lesson</Text>
+          <View style={{ width: 40 }} />
+        </View>
         <View style={styles.errorContainer}>
           <Ionicons name="alert-circle-outline" size={48} color="#6B7280" />
           <Text style={styles.errorText}>{error || 'Something went wrong'}</Text>
@@ -576,23 +562,16 @@ export default function LessonDetailScreen() {
   if (!canAccess) {
     return (
       <SafeAreaView style={[styles.container, {backgroundColor: theme.colors.background}]}>
-        <LinearGradient
-          colors={['#6366F1', '#818CF8']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.headerGradient}
-        >
-          <View style={styles.header}>
-            <IconButton
-              icon="arrow-left"
-              size={24}
-              onPress={handleBackNavigation}
-              iconColor="#FFFFFF"
-            />
-            <Text style={styles.headerTitle}>{lesson?.title || 'Lesson'}</Text>
-            <View style={{ width: 40 }} />
-          </View>
-        </LinearGradient>
+        <View style={[styles.header, { backgroundColor: '#6366F1' }]}>
+          <IconButton
+            icon="arrow-left"
+            size={24}
+            onPress={handleBackNavigation}
+            iconColor="#FFFFFF"
+          />
+          <Text style={styles.headerTitle}>{lesson?.title || 'Lesson'}</Text>
+          <View style={{ width: 40 }} />
+        </View>
         <View style={styles.lockedContainer}>
           <View style={styles.lockedContent}>
             <Ionicons name="lock-closed" size={64} color="#6B7280" />
@@ -615,23 +594,16 @@ export default function LessonDetailScreen() {
 
   return (
     <SafeAreaView style={[styles.container, {backgroundColor: theme.colors.background}]}>
-      <LinearGradient
-        colors={['#6366F1', '#818CF8']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.headerGradient}
-      >
-        <View style={styles.header}>
-          <IconButton
-            icon="arrow-left"
-            size={24}
-            onPress={handleBackNavigation}
-            iconColor="#FFFFFF"
-          />
-          <Text style={styles.headerTitle}>{lesson?.title || 'Lesson'}</Text>
-          <View style={{ width: 40 }} />
-        </View>
-      </LinearGradient>
+      <View style={[styles.header, { backgroundColor: '#6366F1' }]}>
+        <IconButton
+          icon="arrow-left"
+          size={24}
+          onPress={handleBackNavigation}
+          iconColor="#FFFFFF"
+        />
+        <Text style={styles.headerTitle}>{lesson?.title || 'Lesson'}</Text>
+        <View style={{ width: 40 }} />
+      </View>
 
       <ScrollView style={styles.scrollView}>
         {/* Title Section with enhanced styling */}
@@ -865,7 +837,7 @@ const styles = StyleSheet.create<Styles>({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 8,
-    paddingVertical: 8,
+    paddingVertical: 16,
   },
   headerTitle: {
     fontSize: 20,

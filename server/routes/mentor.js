@@ -1,6 +1,6 @@
 const express = require('express');
 const auth = require('../middleware/auth');
-const { generateAIResponse } = require('../services/openai');
+const { generateAIResponse } = require('../services/ai');
 const router = express.Router();
 
 // AI mentor response endpoint

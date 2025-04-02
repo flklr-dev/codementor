@@ -5,8 +5,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { getCoursesByDifficulty, getCoursesByTag } from '../services/courseService';
-import { LinearGradient } from 'expo-linear-gradient';
 import { StackNavigationProp } from '@react-navigation/stack';
+import { LinearGradient } from 'expo-linear-gradient';
 
 // Add this interface at the top of the file
 interface Course {
@@ -69,34 +69,8 @@ export default function CoursesCategoryScreen() {
     fetchCourses();
   }, [difficulty, tag]);
 
-  // Get category-specific gradient colors
-  const getCategoryGradient = () => {
-    return ['#6366F1', '#818CF8'];
-  };
-
-  // Get icon for category
-  const getCategoryIcon = () => {
-    if (difficulty) {
-      switch(difficulty.toLowerCase()) {
-        case 'beginner': return 'school-outline';
-        case 'intermediate': return 'trending-up';
-        case 'advanced': return 'rocket-outline';
-        default: return 'library-outline';
-      }
-    } else if (tag) {
-      const tagLower = tag.toLowerCase();
-      if (tagLower.includes('javascript')) return 'logo-javascript';
-      if (tagLower.includes('react')) return 'logo-react';
-      if (tagLower.includes('node')) return 'server-outline';
-      if (tagLower.includes('python')) return 'logo-python';
-      if (tagLower.includes('web')) return 'globe-outline';
-      return 'code-slash-outline';
-    }
-    return 'library-outline';
-  };
-
   // Render course cards with enhanced styling
-  const renderCourseItem = (course: Course) => (
+  const renderCourseItem = (course: Course, index: number) => (
     <Card
       key={course._id}
       style={styles.courseCard}
@@ -109,12 +83,7 @@ export default function CoursesCategoryScreen() {
         end={{ x: 1, y: 1 }}
         style={styles.courseCardHeader}
       >
-        <IconButton 
-          icon={getCourseIcon(course.title)} 
-          iconColor="#FFFFFF" 
-          size={28}
-          style={styles.courseIcon}
-        />
+        <Text style={styles.courseNumber}>{index + 1}</Text>
         <Chip 
           style={[styles.difficultyChip, {backgroundColor: 'rgba(255, 255, 255, 0.2)'}]}
           textStyle={{color: '#FFFFFF'}}
@@ -151,52 +120,19 @@ export default function CoursesCategoryScreen() {
     </Card>
   );
 
-  // Helper functions for styling
-  function getCourseIcon(title: string): string {
-    if (!title) return 'book-outline';
-    
-    const titleLower = title.toLowerCase();
-    if (titleLower.includes('javascript')) return 'logo-javascript';
-    if (titleLower.includes('react')) return 'logo-react';
-    if (titleLower.includes('node')) return 'server-outline';
-    if (titleLower.includes('python')) return 'logo-python';
-    if (titleLower.includes('typescript')) return 'code-slash-outline';
-    if (titleLower.includes('mobile')) return 'phone-portrait-outline';
-    if (titleLower.includes('graphql')) return 'git-network-outline';
-    if (titleLower.includes('devops')) return 'git-branch-outline';
-    
-    return 'book-outline';
-  }
-
-  function getDifficultyGradient(difficulty: string): string[] {
-    switch(difficulty?.toLowerCase()) {
-      case 'beginner': return ['#22C55E', '#4ADE80'];
-      case 'intermediate': return ['#3B82F6', '#60A5FA'];
-      case 'advanced': return ['#8B5CF6', '#A78BFA'];
-      default: return ['#6366F1', '#818CF8'];
-    }
-  }
-
   if (loading) {
     return (
       <SafeAreaView style={[styles.container, {backgroundColor: theme.colors.background}]}>
-        <LinearGradient
-          colors={['#6366F1', '#818CF8']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.headerGradient}
-        >
-          <View style={styles.header}>
-            <IconButton
-              icon="arrow-left"
-              size={24}
-              onPress={() => navigation.goBack()}
-              iconColor="#FFFFFF"
-            />
-            <Text style={styles.headerTitle}>{title}</Text>
-            <View style={{ width: 40 }} />
-          </View>
-        </LinearGradient>
+        <View style={[styles.header, { backgroundColor: '#6366F1' }]}>
+          <IconButton
+            icon="arrow-left"
+            size={24}
+            onPress={() => navigation.goBack()}
+            iconColor="#FFFFFF"
+          />
+          <Text style={styles.headerTitle}>{title}</Text>
+          <View style={{ width: 40 }} />
+        </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
           <Text style={styles.loadingText}>Loading courses...</Text>
@@ -208,23 +144,16 @@ export default function CoursesCategoryScreen() {
   if (error) {
     return (
       <SafeAreaView style={[styles.container, {backgroundColor: theme.colors.background}]}>
-        <LinearGradient
-          colors={['#6366F1', '#818CF8']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.headerGradient}
-        >
-          <View style={styles.header}>
-            <IconButton
-              icon="arrow-left"
-              size={24}
-              onPress={() => navigation.goBack()}
-              iconColor="#FFFFFF"
-            />
-            <Text style={styles.headerTitle}>{title}</Text>
-            <View style={{ width: 40 }} />
-          </View>
-        </LinearGradient>
+        <View style={[styles.header, { backgroundColor: '#6366F1' }]}>
+          <IconButton
+            icon="arrow-left"
+            size={24}
+            onPress={() => navigation.goBack()}
+            iconColor="#FFFFFF"
+          />
+          <Text style={styles.headerTitle}>{title}</Text>
+          <View style={{ width: 40 }} />
+        </View>
         <View style={styles.errorContainer}>
           <Ionicons name="alert-circle-outline" size={48} color={theme.colors.error} />
           <Text style={styles.errorText}>{error}</Text>
@@ -241,28 +170,21 @@ export default function CoursesCategoryScreen() {
 
   return (
     <SafeAreaView style={[styles.container, {backgroundColor: theme.colors.background}]}>
-      <LinearGradient
-        colors={['#6366F1', '#818CF8']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.headerGradient}
-      >
-        <View style={styles.header}>
-          <IconButton
-            icon="arrow-left"
-            size={24}
-            onPress={() => navigation.goBack()}
-            iconColor="#FFFFFF"
-          />
-          <Text style={styles.headerTitle}>{title}</Text>
-          <View style={{ width: 40 }} />
-        </View>
-      </LinearGradient>
+      <View style={[styles.header, { backgroundColor: '#6366F1' }]}>
+        <IconButton
+          icon="arrow-left"
+          size={24}
+          onPress={() => navigation.goBack()}
+          iconColor="#FFFFFF"
+        />
+        <Text style={styles.headerTitle}>{title}</Text>
+        <View style={{ width: 40 }} />
+      </View>
 
       <ScrollView style={styles.scrollView}>
         {courses.length > 0 ? (
           <View style={styles.coursesList}>
-            {courses.map(course => renderCourseItem(course))}
+            {courses.map((course, index) => renderCourseItem(course, index))}
             <View style={styles.bottomPadding} />
           </View>
         ) : (
@@ -280,15 +202,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  headerGradient: {
-    paddingTop: 8,
-  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 8,
-    paddingBottom: 16,
+    paddingVertical: 16,
   },
   headerTitle: {
     fontSize: 20,
@@ -308,15 +227,16 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   courseCardHeader: {
-    height: 80,
+    height: 60,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
   },
-  courseIcon: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 12,
+  courseNumber: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
   },
   difficultyChip: {
     height: 32,

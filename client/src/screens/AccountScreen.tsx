@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, View, ScrollView, Switch } from 'react-native';
+import { StyleSheet, View, ScrollView, Switch, TouchableOpacity } from 'react-native';
 import {
   Text,
   Avatar,
@@ -7,29 +7,53 @@ import {
   Surface,
   IconButton,
   Button,
+  Divider,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useAppDispatch } from '../store/hooks';
 import { logout } from '../store/slices/authSlice';
+import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
+
+type IconName = 'moon' | 'notifications' | 'globe' | 'shield-checkmark' | 'chevron-forward';
+
+interface SettingItem {
+  icon: IconName;
+  label: string;
+  type: 'switch' | 'link';
+  value?: boolean | string;
+  onValueChange?: (value: boolean) => void;
+  onPress?: () => void;
+}
+
+interface SettingSection {
+  title: string;
+  items: SettingItem[];
+}
+
+type RootStackParamList = {
+  EditProfile: undefined;
+};
 
 export default function AccountScreen() {
   const theme = useTheme();
+  const dispatch = useAppDispatch();
+  const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
   const [isDarkMode, setIsDarkMode] = React.useState(false);
   const [notifications, setNotifications] = React.useState(true);
-  const dispatch = useAppDispatch();
 
   const userProfile = {
     name: 'John Doe',
     email: 'john.doe@example.com',
-    level: 12,
-    xp: 2450,
-    nextLevelXp: 3000,
-    avatar: null, // Add avatar URL here
+    avatar: null,
   };
 
-  const settingsSections = [
+  const handleEditProfile = () => {
+    navigation.navigate('EditProfile');
+  };
+
+  const settingsSections: SettingSection[] = [
     {
       title: 'Preferences',
       items: [
@@ -52,27 +76,18 @@ export default function AccountScreen() {
           label: 'Language',
           value: 'English',
           type: 'link',
+          onPress: () => {},
         },
       ],
     },
     {
-      title: 'Account',
+      title: 'Privacy & Security',
       items: [
-        {
-          icon: 'mail',
-          label: 'Email',
-          value: userProfile.email,
-          type: 'link',
-        },
-        {
-          icon: 'lock-closed',
-          label: 'Change Password',
-          type: 'link',
-        },
         {
           icon: 'shield-checkmark',
           label: 'Privacy Settings',
           type: 'link',
+          onPress: () => {},
         },
       ],
     },
@@ -84,107 +99,98 @@ export default function AccountScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Profile Header */}
-      <LinearGradient
-        colors={['#6366F1', '#818CF8']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.header}>
-        <View style={styles.profileInfo}>
-          {/* Avatar Section */}
-          <View style={styles.avatarSection}>
-            <View style={styles.avatarContainer}>
+      <View style={[styles.header, { backgroundColor: '#6366F1' }]}>
+        <IconButton
+          icon="chevron-left"
+          size={24}
+          iconColor="#FFFFFF"
+          style={{ opacity: 0 }}
+        />
+        <Text style={styles.headerTitle}>Account</Text>
+        <IconButton
+          icon="chevron-left"
+          size={24}
+          iconColor="#FFFFFF"
+          style={{ opacity: 0 }}
+        />
+      </View>
+
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Profile Section */}
+        <Surface style={styles.profileCard}>
+          <View style={styles.profileContent}>
+            <View style={styles.avatarSection}>
               {userProfile.avatar ? (
                 <Avatar.Image 
-                  size={100} 
+                  size={80} 
                   source={{ uri: userProfile.avatar }}
                   style={styles.avatar}
                 />
               ) : (
                 <Avatar.Text 
-                  size={100} 
+                  size={80} 
                   label={userProfile.name.charAt(0)}
                   style={styles.avatar}
+                  labelStyle={styles.avatarLabel}
                 />
               )}
               <View style={styles.editAvatarButton}>
-                <Ionicons name="camera" size={20} color="#FFFFFF" />
+                <Ionicons name="camera" size={16} color="#FFFFFF" />
               </View>
             </View>
-            
-            <View style={styles.userInfo}>
+
+            <View style={styles.profileInfo}>
               <Text style={styles.userName}>{userProfile.name}</Text>
               <Text style={styles.userEmail}>{userProfile.email}</Text>
             </View>
+
+            <Button
+              mode="outlined"
+              onPress={handleEditProfile}
+              style={styles.editButton}
+              icon="pencil"
+            >
+              Edit Profile
+            </Button>
           </View>
+        </Surface>
 
-          {/* Progress Section */}
-          <View style={styles.progressSection}>
-            <View style={styles.levelBadgeContainer}>
-              <Surface style={styles.levelBadge}>
-                <Text style={styles.levelText}>{userProfile.level}</Text>
-              </Surface>
-              <Text style={styles.levelLabel}>LEVEL</Text>
-            </View>
-
-            <View style={styles.xpContainer}>
-              <View style={styles.progressHeader}>
-                <Text style={styles.progressLabel}>Experience Points</Text>
-                <Text style={styles.xpText}>
-                  {userProfile.xp}/{userProfile.nextLevelXp} XP
-                </Text>
-              </View>
-              <View style={styles.progressBarContainer}>
-                <View 
-                  style={[
-                    styles.progressBarFill,
-                    { width: `${(userProfile.xp / userProfile.nextLevelXp) * 100}%` }
-                  ]} 
-                />
-              </View>
-              <Text style={styles.progressSubtext}>
-                {userProfile.nextLevelXp - userProfile.xp} XP until next level
-              </Text>
-            </View>
-          </View>
-        </View>
-      </LinearGradient>
-
-      <ScrollView style={styles.content}>
-        {settingsSections.map((section, index) => (
+        {/* Settings Sections */}
+        {settingsSections.map((section, sectionIndex) => (
           <View key={section.title} style={styles.section}>
             <Text style={styles.sectionTitle}>{section.title}</Text>
             <Surface style={styles.settingsCard}>
               {section.items.map((item, itemIndex) => (
-                <View
-                  key={item.label}
-                  style={[
-                    styles.settingItem,
-                    itemIndex < section.items.length - 1 && styles.settingBorder,
-                  ]}>
-                  <View style={styles.settingLeft}>
-                    <View style={styles.iconContainer}>
-                      <Ionicons name={item.icon} size={20} color="#6366F1" />
+                <React.Fragment key={item.label}>
+                  <TouchableOpacity
+                    style={styles.settingItem}
+                    onPress={item.type === 'link' ? item.onPress : undefined}
+                  >
+                    <View style={styles.settingLeft}>
+                      <View style={styles.iconContainer}>
+                        <Ionicons name={item.icon} size={20} color="#6366F1" />
+                      </View>
+                      <Text style={styles.settingLabel}>{item.label}</Text>
                     </View>
-                    <Text style={styles.settingLabel}>{item.label}</Text>
-                  </View>
-                  
-                  {item.type === 'switch' ? (
-                    <Switch
-                      value={item.value}
-                      onValueChange={item.onValueChange}
-                      trackColor={{ false: '#E5E7EB', true: '#818CF8' }}
-                      thumbColor={item.value ? '#6366F1' : '#FFFFFF'}
-                    />
-                  ) : (
-                    <View style={styles.settingRight}>
-                      {item.value && (
-                        <Text style={styles.settingValue}>{item.value}</Text>
-                      )}
-                      <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
-                    </View>
-                  )}
-                </View>
+                    
+                    {item.type === 'switch' ? (
+                      <Switch
+                        value={item.value as boolean}
+                        onValueChange={item.onValueChange}
+                        trackColor={{ false: '#E5E7EB', true: '#818CF8' }}
+                        thumbColor={item.value ? '#6366F1' : '#FFFFFF'}
+                      />
+                    ) : (
+                      <View style={styles.settingRight}>
+                        {item.value && (
+                          <Text style={styles.settingValue}>{item.value}</Text>
+                        )}
+                        <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                  {itemIndex < section.items.length - 1 && <Divider />}
+                </React.Fragment>
               ))}
             </Surface>
           </View>
@@ -194,7 +200,9 @@ export default function AccountScreen() {
           mode="outlined"
           onPress={handleLogout}
           style={styles.logoutButton}
-          textColor="#EF4444">
+          textColor="#EF4444"
+          icon="logout"
+        >
           Logout
         </Button>
       </ScrollView>
@@ -208,134 +216,84 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F4F6',
   },
   header: {
-    paddingTop: 32,
-    paddingBottom: 24,
-    paddingHorizontal: 20,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-  },
-  profileInfo: {
-    gap: 24,
-  },
-  avatarSection: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 20,
-  },
-  avatarContainer: {
-    position: 'relative',
-  },
-  avatar: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-  },
-  editAvatarButton: {
-    position: 'absolute',
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#6366F1',
-    borderRadius: 20,
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-  },
-  userInfo: {
-    flex: 1,
-  },
-  userName: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    marginBottom: 4,
-  },
-  userEmail: {
-    fontSize: 14,
-    color: '#E5E7EB',
-  },
-  progressSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 16,
-    padding: 16,
-  },
-  
-  // Updated styles to match AchievementsScreen
-  levelBadgeContainer: {
-    alignItems: 'center',
-  },
-  levelBadge: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 4,
-    backgroundColor: '#FFFFFF',
-    elevation: 3,
-  },
-  levelText: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#6366F1',
-  },
-  levelLabel: {
-    fontSize: 12,
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
-  
-  xpContainer: {
-    flex: 1,
-  },
-  progressHeader: {
-    flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 16,
   },
-  progressLabel: {
-    fontSize: 16,
-    fontWeight: '600',
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
     color: '#FFFFFF',
-  },
-  xpText: {
-    fontSize: 14,
-    color: '#E5E7EB',
-    fontWeight: '500',
-  },
-  progressBarContainer: {
-    height: 10,
-    backgroundColor: 'rgba(255,255,255,0.3)',
-    borderRadius: 5,
-    overflow: 'hidden',
-    marginBottom: 8,
-  },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: '#FCD34D',
-    borderRadius: 5,
-  },
-  progressSubtext: {
-    fontSize: 12,
-    color: '#E5E7EB',
-    textAlign: 'center',
   },
   content: {
     flex: 1,
     padding: 16,
   },
+  profileCard: {
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    elevation: 2,
+    marginBottom: 24,
+    overflow: 'hidden',
+  },
+  profileContent: {
+    padding: 24,
+    alignItems: 'center',
+  },
+  avatarSection: {
+    position: 'relative',
+    marginBottom: 16,
+  },
+  avatar: {
+    backgroundColor: '#EEF2FF',
+  },
+  avatarLabel: {
+    fontSize: 32,
+    color: '#6366F1',
+  },
+  editAvatarButton: {
+    position: 'absolute',
+    right: -4,
+    bottom: -4,
+    backgroundColor: '#6366F1',
+    borderRadius: 16,
+    width: 32,
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  profileInfo: {
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 16,
+  },
+  userName: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  userEmail: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  editButton: {
+    borderColor: '#6366F1',
+    borderRadius: 8,
+  },
   section: {
     marginBottom: 24,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
-    color: '#1F2937',
+    color: '#6B7280',
     marginBottom: 12,
+    marginLeft: 4,
+    textTransform: 'uppercase',
   },
   settingsCard: {
     borderRadius: 16,
@@ -348,10 +306,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: 16,
-  },
-  settingBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
   },
   settingLeft: {
     flexDirection: 'row',
@@ -383,5 +337,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 32,
     borderColor: '#EF4444',
+    borderRadius: 12,
   },
 }); 

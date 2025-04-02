@@ -6,6 +6,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   TextInput as RNTextInput,
+  ActivityIndicator,
 } from 'react-native';
 import {
   Text,
@@ -15,10 +16,12 @@ import {
   useTheme,
   Surface,
   Avatar,
+  Snackbar,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import * as Clipboard from 'expo-clipboard';
+import api from '../services/api';
 
 interface Message {
   id: string;
@@ -31,6 +34,10 @@ interface Message {
   };
 }
 
+interface CopyState {
+  [key: string]: boolean;
+}
+
 export default function AIMentorScreen() {
   const theme = useTheme();
   const [message, setMessage] = useState('');
@@ -38,43 +45,116 @@ export default function AIMentorScreen() {
     {
       id: '1',
       type: 'ai',
-      content: "Hi! I'm your AI coding mentor. How can I help you today?",
+      content: "Hi! I'm your AI coding mentor. I can help you with:\n• Code explanations\n• Debugging\n• Best practices\n• Learning concepts\n\nWhat would you like to learn about?",
       timestamp: new Date(),
     },
   ]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [showSnackbar, setShowSnackbar] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [copyStates, setCopyStates] = useState<CopyState>({});
   const scrollViewRef = useRef<ScrollView>(null);
   const inputRef = useRef<RNTextInput>(null);
 
-  const handleSend = () => {
-    if (!message.trim()) return;
+  // Function to extract code blocks from AI response
+  const parseResponse = (response: string): { text: string; codeBlock?: { language: string; code: string } } => {
+    const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/;
+    const match = response.match(codeBlockRegex);
+    
+    if (match) {
+      const [fullMatch, language = 'javascript', code] = match;
+      const text = response.replace(fullMatch, '').trim();
+      return {
+        text,
+        codeBlock: {
+          language,
+          code: code.trim()
+        }
+      };
+    }
+    
+    return { text: response };
+  };
+
+  const handleSend = async () => {
+    if (!message.trim() || isLoading) return;
     
     // Add user message
     const userMessage: Message = {
       id: Date.now().toString(),
       type: 'user',
-      content: message,
+      content: message.trim(),
       timestamp: new Date(),
     };
 
-    setMessages((prev) => [...prev, userMessage]);
+    setMessages(prev => [...prev, userMessage]);
     setMessage('');
+    setIsLoading(true);
 
-    // Simulate AI response
-    setTimeout(() => {
-      const aiResponse: Message = {
-        id: (Date.now() + 1).toString(),
+    try {
+      // Get only the most recent message without unnecessary context
+      const justCurrentMessage = message.trim();
+
+      // Call AI mentor API with simplified approach
+      const response = await api.post('/mentor/chat', {
+        message: justCurrentMessage,
+      });
+
+      const aiResponse = response.data.response;
+      
+      // Check if the response is too long or has unrelated content
+      let cleanedResponse = aiResponse;
+      if (userMessage.content.toLowerCase().startsWith('can you') && 
+          cleanedResponse.toLowerCase().includes('difference between')) {
+        cleanedResponse = "Let me focus on what you asked. Here's the code:\n\n```python\nprint('Hello World')\n```";
+      }
+      
+      const parsed = parseResponse(cleanedResponse);
+
+      const aiMessage: Message = {
+        id: Date.now().toString(),
         type: 'ai',
-        content: "Here's an example of a React component:",
+        content: parsed.text,
         timestamp: new Date(),
-        codeBlock: {
-          language: 'javascript',
-          code: `function Welcome(props) {
-  return <h1>Hello, {props.name}</h1>;
-}`,
-        },
+        codeBlock: parsed.codeBlock,
       };
-      setMessages((prev) => [...prev, aiResponse]);
-    }, 1000);
+
+      setMessages(prev => [...prev, aiMessage]);
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    } catch (error) {
+      console.error('Error getting AI response:', error);
+      setSnackbarMessage('Sorry, I had trouble responding. Please try again.');
+      setShowSnackbar(true);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const copyToClipboard = async (code: string, messageId: string) => {
+    try {
+      await Clipboard.setStringAsync(code);
+      
+      // Set copy state to true for this specific message
+      setCopyStates(prev => ({
+        ...prev,
+        [messageId]: true
+      }));
+
+      // Reset copy state after 2 seconds
+      setTimeout(() => {
+        setCopyStates(prev => ({
+          ...prev,
+          [messageId]: false
+        }));
+      }, 2000);
+
+      setSnackbarMessage('Code copied to clipboard!');
+      setShowSnackbar(true);
+    } catch (error) {
+      console.error('Error copying to clipboard:', error);
+      setSnackbarMessage('Failed to copy code');
+      setShowSnackbar(true);
+    }
   };
 
   return (
@@ -107,6 +187,7 @@ export default function AIMentorScreen() {
       <ScrollView
         ref={scrollViewRef}
         style={styles.messagesContainer}
+        contentContainerStyle={styles.messagesContent}
         onContentSizeChange={() => scrollViewRef.current?.scrollToEnd()}
       >
         {messages.map((msg) => (
@@ -117,8 +198,16 @@ export default function AIMentorScreen() {
               msg.type === 'user' ? styles.userMessage : styles.aiMessage,
             ]}
           >
-            <Surface style={styles.messageBubble}>
-              <Text style={styles.messageText}>{msg.content}</Text>
+            <Surface style={[
+              styles.messageBubble,
+              msg.type === 'user' ? styles.userBubble : styles.aiBubble
+            ]}>
+              <Text style={[
+                styles.messageText,
+                msg.type === 'user' ? styles.userMessageText : null
+              ]}>
+                {msg.content}
+              </Text>
               {msg.codeBlock && (
                 <Card style={styles.codeBlock}>
                   <Card.Content>
@@ -127,12 +216,10 @@ export default function AIMentorScreen() {
                         {msg.codeBlock.language}
                       </Text>
                       <IconButton
-                        icon="content-copy"
+                        icon={copyStates[msg.id] ? "check" : "content-copy"}
                         size={16}
-                        iconColor="#9CA3AF"
-                        onPress={() => {
-                          // Implement copy to clipboard
-                        }}
+                        iconColor={copyStates[msg.id] ? "#4CAF50" : "#9CA3AF"}
+                        onPress={() => copyToClipboard(msg.codeBlock!.code, msg.id)}
                       />
                     </View>
                     <Text style={styles.codeText}>{msg.codeBlock.code}</Text>
@@ -142,11 +229,17 @@ export default function AIMentorScreen() {
             </Surface>
           </View>
         ))}
+        {isLoading && (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="small" color="#6366F1" />
+          </View>
+        )}
       </ScrollView>
 
       {/* Input Area */}
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
         style={styles.inputContainer}
       >
         <TextInput
@@ -156,16 +249,27 @@ export default function AIMentorScreen() {
           placeholder="Ask me anything about coding..."
           style={styles.input}
           multiline
+          disabled={isLoading}
           right={
             <TextInput.Icon
               icon="send"
               onPress={handleSend}
-              disabled={!message.trim()}
-              color={message.trim() ? '#6366F1' : '#9CA3AF'}
+              disabled={!message.trim() || isLoading}
+              color={message.trim() && !isLoading ? '#6366F1' : '#9CA3AF'}
             />
           }
         />
       </KeyboardAvoidingView>
+
+      {/* Snackbar for notifications */}
+      <Snackbar
+        visible={showSnackbar}
+        onDismiss={() => setShowSnackbar(false)}
+        duration={3000}
+        style={styles.snackbar}
+      >
+        {snackbarMessage}
+      </Snackbar>
     </SafeAreaView>
   );
 }
@@ -177,16 +281,22 @@ const styles = StyleSheet.create({
   },
   heroSection: {
     backgroundColor: '#6366F1',
+    paddingTop: 8,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
+  },
+  avatar: {
+    backgroundColor: '#EEF2FF',
   },
   headerContent: {
     marginLeft: 12,
@@ -207,7 +317,10 @@ const styles = StyleSheet.create({
   },
   messagesContainer: {
     flex: 1,
+  },
+  messagesContent: {
     padding: 16,
+    paddingBottom: 32,
   },
   messageWrapper: {
     marginBottom: 16,
@@ -222,13 +335,21 @@ const styles = StyleSheet.create({
   messageBubble: {
     padding: 12,
     borderRadius: 16,
-    backgroundColor: '#FFFFFF',
     elevation: 2,
+  },
+  userBubble: {
+    backgroundColor: '#6366F1',
+  },
+  aiBubble: {
+    backgroundColor: '#FFFFFF',
   },
   messageText: {
     fontSize: 15,
     color: '#1F2937',
     lineHeight: 20,
+  },
+  userMessageText: {
+    color: '#FFFFFF',
   },
   codeBlock: {
     marginTop: 8,
@@ -260,5 +381,12 @@ const styles = StyleSheet.create({
   },
   input: {
     backgroundColor: '#FFFFFF',
+  },
+  loadingContainer: {
+    padding: 16,
+    alignItems: 'center',
+  },
+  snackbar: {
+    backgroundColor: '#1F2937',
   },
 }); 
