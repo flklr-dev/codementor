@@ -7,6 +7,7 @@ import {
   Platform,
   TextInput as RNTextInput,
   ActivityIndicator,
+  TouchableOpacity,
 } from 'react-native';
 import {
   Text,
@@ -32,6 +33,7 @@ interface Message {
     language: string;
     code: string;
   };
+  error?: string;
 }
 
 interface CopyState {
@@ -57,23 +59,65 @@ export default function AIMentorScreen() {
   const inputRef = useRef<RNTextInput>(null);
 
   // Function to extract code blocks from AI response
-  const parseResponse = (response: string): { text: string; codeBlock?: { language: string; code: string } } => {
-    const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/;
-    const match = response.match(codeBlockRegex);
-    
-    if (match) {
-      const [fullMatch, language = 'javascript', code] = match;
-      const text = response.replace(fullMatch, '').trim();
-      return {
-        text,
-        codeBlock: {
-          language,
-          code: code.trim()
+  const parseResponse = (response: string): { text: string; codeBlock?: { language: string; code: string }; error?: string } => {
+    try {
+      // First, clean up the response by removing any raw prompt text
+      const cleanResponse = response.replace(/You are an expert coding mentor.*?Response:/s, '').trim();
+      
+      if (!cleanResponse) {
+        return { text: 'Sorry, I received an empty response. Please try again.' };
+      }
+
+      // Extract code blocks with improved regex
+      const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/g;
+      const matches = [...cleanResponse.matchAll(codeBlockRegex)];
+      
+      if (matches.length > 0) {
+        // Use the first code block
+        const [fullMatch, language, code] = matches[0];
+        
+        // Get the requested language from the user's message
+        const userMessage = messages[messages.length - 1]?.content.toLowerCase() || '';
+        let requestedLanguage = 'python'; // default to python
+        
+        // Check for language in user's message
+        if (userMessage.includes('python')) requestedLanguage = 'python';
+        else if (userMessage.includes('javascript')) requestedLanguage = 'javascript';
+        else if (userMessage.includes('java')) requestedLanguage = 'java';
+        else if (userMessage.includes('c++')) requestedLanguage = 'cpp';
+        else if (userMessage.includes('c#')) requestedLanguage = 'csharp';
+        else if (userMessage.includes('ruby')) requestedLanguage = 'ruby';
+        else if (userMessage.includes('php')) requestedLanguage = 'php';
+        else if (userMessage.includes('swift')) requestedLanguage = 'swift';
+        else if (userMessage.includes('kotlin')) requestedLanguage = 'kotlin';
+        else if (userMessage.includes('go')) requestedLanguage = 'go';
+        else if (userMessage.includes('rust')) requestedLanguage = 'rust';
+        
+        // Remove the code block from the text
+        const text = cleanResponse.replace(fullMatch, '').trim();
+        
+        // Validate code content
+        if (!code.trim()) {
+          return { text: 'Sorry, the code block was empty. Please try again.' };
         }
+
+        return {
+          text: text || 'Here\'s the code:',
+          codeBlock: {
+            language: requestedLanguage,
+            code: code.trim()
+          }
+        };
+      }
+      
+      return { text: cleanResponse };
+    } catch (error) {
+      console.error('Error parsing response:', error);
+      return { 
+        text: 'Sorry, I had trouble processing the response. Please try again.',
+        error: 'Response parsing failed'
       };
     }
-    
-    return { text: response };
   };
 
   const handleSend = async () => {
@@ -92,24 +136,16 @@ export default function AIMentorScreen() {
     setIsLoading(true);
 
     try {
-      // Get only the most recent message without unnecessary context
-      const justCurrentMessage = message.trim();
-
-      // Call AI mentor API with simplified approach
       const response = await api.post('/mentor/chat', {
-        message: justCurrentMessage,
+        message: message.trim(),
       });
 
-      const aiResponse = response.data.response;
-      
-      // Check if the response is too long or has unrelated content
-      let cleanedResponse = aiResponse;
-      if (userMessage.content.toLowerCase().startsWith('can you') && 
-          cleanedResponse.toLowerCase().includes('difference between')) {
-        cleanedResponse = "Let me focus on what you asked. Here's the code:\n\n```python\nprint('Hello World')\n```";
+      if (!response.data || !response.data.response) {
+        throw new Error('Invalid response format');
       }
-      
-      const parsed = parseResponse(cleanedResponse);
+
+      const aiResponse = response.data.response;
+      const parsed = parseResponse(aiResponse);
 
       const aiMessage: Message = {
         id: Date.now().toString(),
@@ -117,42 +153,61 @@ export default function AIMentorScreen() {
         content: parsed.text,
         timestamp: new Date(),
         codeBlock: parsed.codeBlock,
+        error: parsed.error,
       };
 
       setMessages(prev => [...prev, aiMessage]);
       scrollViewRef.current?.scrollToEnd({ animated: true });
     } catch (error) {
       console.error('Error getting AI response:', error);
-      setSnackbarMessage('Sorry, I had trouble responding. Please try again.');
+      const errorMessage: Message = {
+        id: Date.now().toString(),
+        type: 'ai',
+        content: 'Sorry, I had trouble responding. Please try again.',
+        timestamp: new Date(),
+        error: 'API request failed',
+      };
+      setMessages(prev => [...prev, errorMessage]);
+      setSnackbarMessage('Failed to get AI response');
       setShowSnackbar(true);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const copyToClipboard = async (code: string, messageId: string) => {
+  const copyResponse = async (message: Message, messageId: string) => {
     try {
-      await Clipboard.setStringAsync(code);
+      if (!message.content && !message.codeBlock) {
+        throw new Error('No content to copy');
+      }
+
+      // Combine text and code block if present
+      let fullResponse = message.content;
+      if (message.codeBlock) {
+        fullResponse += `\n\n\`\`\`${message.codeBlock.language}\n${message.codeBlock.code}\n\`\`\``;
+      }
+
+      await Clipboard.setStringAsync(fullResponse);
       
       // Set copy state to true for this specific message
       setCopyStates(prev => ({
         ...prev,
-        [messageId]: true
+        [`response_${messageId}`]: true
       }));
 
       // Reset copy state after 2 seconds
       setTimeout(() => {
         setCopyStates(prev => ({
           ...prev,
-          [messageId]: false
+          [`response_${messageId}`]: false
         }));
       }, 2000);
 
-      setSnackbarMessage('Code copied to clipboard!');
+      setSnackbarMessage('Response copied to clipboard!');
       setShowSnackbar(true);
     } catch (error) {
-      console.error('Error copying to clipboard:', error);
-      setSnackbarMessage('Failed to copy code');
+      console.error('Error copying response:', error);
+      setSnackbarMessage('Failed to copy response');
       setShowSnackbar(true);
     }
   };
@@ -204,7 +259,8 @@ export default function AIMentorScreen() {
             ]}>
               <Text style={[
                 styles.messageText,
-                msg.type === 'user' ? styles.userMessageText : null
+                msg.type === 'user' ? styles.userMessageText : null,
+                msg.error ? styles.errorText : null
               ]}>
                 {msg.content}
               </Text>
@@ -219,7 +275,7 @@ export default function AIMentorScreen() {
                         icon={copyStates[msg.id] ? "check" : "content-copy"}
                         size={16}
                         iconColor={copyStates[msg.id] ? "#4CAF50" : "#9CA3AF"}
-                        onPress={() => copyToClipboard(msg.codeBlock!.code, msg.id)}
+                        onPress={() => copyResponse(msg, msg.id)}
                       />
                     </View>
                     <Text style={styles.codeText}>{msg.codeBlock.code}</Text>
@@ -227,6 +283,21 @@ export default function AIMentorScreen() {
                 </Card>
               )}
             </Surface>
+            {msg.type === 'ai' && (
+              <TouchableOpacity
+                style={styles.copyResponseButton}
+                onPress={() => copyResponse(msg, msg.id)}
+              >
+                <IconButton
+                  icon={copyStates[`response_${msg.id}`] ? "check" : "content-copy"}
+                  size={14}
+                  iconColor={copyStates[`response_${msg.id}`] ? "#4CAF50" : "#9CA3AF"}
+                />
+                <Text style={styles.copyResponseText}>
+                  {copyStates[`response_${msg.id}`] ? 'Copied' : 'Copy'}
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         ))}
         {isLoading && (
@@ -388,5 +459,21 @@ const styles = StyleSheet.create({
   },
   snackbar: {
     backgroundColor: '#1F2937',
+  },
+  copyResponseButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    marginLeft: 4,
+  },
+  copyResponseText: {
+    color: '#9CA3AF',
+    fontSize: 11,
+    marginLeft: 2,
+    fontWeight: '400',
+  },
+  errorText: {
+    color: '#EF4444',
   },
 }); 
