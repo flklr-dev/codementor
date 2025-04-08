@@ -2,14 +2,16 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Define your API base URL here
+// Using the IP address your device can actually reach
 const API_URL = 'http://192.168.1.118:4000/api';
 
-// Create a base axios instance
+// Create a base axios instance with timeout
 const api = axios.create({
   baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: 10000, // 10 second timeout
 });
 
 // Add a request interceptor to include the auth token

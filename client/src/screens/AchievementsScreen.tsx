@@ -8,6 +8,7 @@ import {
   useTheme,
   Surface,
   IconButton,
+  Button,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -40,7 +41,7 @@ interface UserStats {
   lessonsCompleted: number;
   quizzesTaken: number;
   avgQuizScore: number;
-  totalCodingHours: number;
+  completedQuizzes: number;
 }
 
 export default function AchievementsScreen() {
@@ -74,6 +75,16 @@ export default function AchievementsScreen() {
     }
   };
 
+  const forceUpdateAchievements = async () => {
+    try {
+      console.log('Force update achievements functionality removed');
+      // This endpoint was removed from the server
+      return null;
+    } catch (error) {
+      console.error('Error force updating achievements:', error);
+    }
+  };
+
   const fetchUserProgress = async () => {
     try {
       setLoading(true);
@@ -90,21 +101,50 @@ export default function AchievementsScreen() {
       
       console.log('Fetching progress with user ID:', userId);
       
+      // Add a cache-busting timestamp for guaranteed fresh data
       const timestamp = new Date().getTime();
-      const response = await api.get(`/users/${userId}/progress?t=${timestamp}`);
+      const response = await api.get(`/progress/users/${userId}/progress?t=${timestamp}&force=true`);
       
-      console.log('Progress API response received, status:', response.status);
+      console.log('Progress API response:', response.data);
       
-      // Process user stats
+      // Check for blank/undefined data
+      if (!response.data) {
+        console.error('Received empty response data');
+        setError('Received empty response data');
+        setLoading(false);
+        return;
+      }
+      
+      // Ensure quiz data fields exist
+      const completedQuizzes = response.data.completedQuizzes || 0;
+      const avgQuizScore = response.data.avgQuizScore || 0;
+      
+      // Log the quiz scores array directly
+      console.log('Raw quiz scores array:', response.data.quizScores);
+
+      console.log('Quiz stats:', {
+        completedQuizzes,
+        avgQuizScore,
+        quizScores: response.data.quizScores || []
+      });
+      
+      // Log achievement progress for debugging
+      console.log('Achievement data:', response.data.achievements.map((a: Achievement) => ({
+        title: a.title,
+        progress: a.progress,
+        targetValue: a.targetValue,
+        earned: a.earned
+      })));
+      
       setUserStats({
         level: response.data.level || 1,
         xp: response.data.xp || 0,
         nextLevelXp: response.data.nextLevelXp || 1000,
         streak: response.data.streak || 0,
         lessonsCompleted: response.data.completedLessons?.length || 0,
-        quizzesTaken: response.data.quizScores?.length || 0,
-        avgQuizScore: response.data.avgQuizScore || 0,
-        totalCodingHours: Math.round(response.data.totalCodingTime / 60) || 0,
+        quizzesTaken: completedQuizzes,
+        avgQuizScore: avgQuizScore,
+        completedQuizzes: completedQuizzes,
       });
       
       // Process achievements
@@ -122,6 +162,7 @@ export default function AchievementsScreen() {
       const userId = getUserId();
       if (userId) {
         console.log('Screen focused, refreshing with user ID:', userId);
+        // Just fetch progress directly
         fetchUserProgress();
       } else {
         console.log('Screen focused but no user ID available, trying to refresh user data');
@@ -175,7 +216,7 @@ export default function AchievementsScreen() {
     lessonsCompleted: 0,
     quizzesTaken: 0,
     avgQuizScore: 0,
-    totalCodingHours: 0,
+    completedQuizzes: 0,
   };
 
   // Count new/unearned achievements that have progress
@@ -275,10 +316,10 @@ export default function AchievementsScreen() {
                 colors={['#8B5CF6', '#A78BFA']}
                 style={styles.statContent}>
                 <View style={styles.iconContainer}>
-                  <Ionicons name="time" size={24} color="#FFFFFF" />
+                  <Ionicons name="checkmark-circle" size={24} color="#FFFFFF" />
                 </View>
-                <Text style={styles.statValue}>{stats.totalCodingHours}h</Text>
-                <Text style={styles.statLabel}>Hours Coded</Text>
+                <Text style={styles.statValue}>{stats.completedQuizzes}</Text>
+                <Text style={styles.statLabel}>Quizzes Done</Text>
               </LinearGradient>
             </View>
 
@@ -316,13 +357,17 @@ export default function AchievementsScreen() {
             </View>
           ) : (
             achievements.map((achievement) => (
-              <Card key={achievement._id} style={styles.achievementCard}>
+              <Card key={achievement._id} style={[
+                styles.achievementCard,
+                achievement.earned && styles.earnedAchievementCard
+              ]}>
                 <Card.Content style={styles.achievementContent}>
                   <View style={styles.achievementLeft}>
                     <View
                       style={[
                         styles.achievementIcon,
                         { backgroundColor: achievement.color + '20' },
+                        achievement.earned && styles.earnedAchievementIcon
                       ]}>
                       <Ionicons
                         name={achievement.icon as any}
@@ -336,9 +381,15 @@ export default function AchievementsScreen() {
                       
                       <View style={styles.xpRewardContainer}>
                         <Ionicons name="flash" size={14} color="#F59E0B" />
-                        <Text style={styles.xpRewardText}>
-                          +{achievement.xpReward || 0} XP
-                        </Text>
+                        {achievement.earned ? (
+                          <Text style={styles.xpRewardText}>
+                            +{achievement.xpReward || 0} XP Earned!
+                          </Text>
+                        ) : (
+                          <Text style={styles.xpRewardText}>
+                            +{achievement.xpReward || 0} XP
+                          </Text>
+                        )}
                       </View>
                     </View>
                   </View>
@@ -354,12 +405,21 @@ export default function AchievementsScreen() {
                     )}
                   </View>
                 </Card.Content>
-                {!achievement.earned && (
-                  <ProgressBar
-                    progress={Math.min(achievement.progress / achievement.targetValue, 1)}
-                    color={achievement.color}
-                    style={styles.achievementProgress}
-                  />
+                <View style={styles.progressBarContainer}>
+                  {achievement.earned ? (
+                    <View style={[styles.progressBarFull, {backgroundColor: achievement.color}]} />
+                  ) : (
+                    <ProgressBar
+                      progress={Math.min(achievement.progress / achievement.targetValue, 1)}
+                      color={achievement.color}
+                      style={styles.achievementProgress}
+                    />
+                  )}
+                </View>
+                {achievement.earned && (
+                  <View style={styles.earnedBadgeContainer}>
+                    <Text style={styles.earnedBadgeText}>COMPLETED</Text>
+                  </View>
                 )}
               </Card>
             ))
@@ -492,9 +552,8 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   progressBarContainer: {
-    height: 10,
-    backgroundColor: 'rgba(255,255,255,0.3)',
-    borderRadius: 5,
+    height: 4,
+    backgroundColor: '#E5E7EB',
     overflow: 'hidden',
   },
   progressBarFill: {
@@ -591,6 +650,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     elevation: 2,
     overflow: 'hidden',
+    position: 'relative',
+  },
+  earnedAchievementCard: {
+    backgroundColor: '#F0FDF4',
+    borderColor: '#22C55E',
+    borderWidth: 1,
   },
   achievementContent: {
     padding: 16,
@@ -609,6 +674,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  earnedAchievementIcon: {
+    backgroundColor: 'rgba(34, 197, 94, 0.2)',
   },
   achievementInfo: {
     marginLeft: 12,
@@ -639,6 +707,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0FDF4',
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#22C55E',
   },
   xpRewardContainer: {
     flexDirection: 'row',
@@ -655,5 +725,24 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#F59E0B',
     marginLeft: 4,
+  },
+  progressBarFull: {
+    height: '100%',
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+  },
+  earnedBadgeContainer: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    backgroundColor: '#22C55E',
+    borderRadius: 8,
+  },
+  earnedBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 }); 

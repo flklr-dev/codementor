@@ -79,72 +79,46 @@ const achievements = [
     requirement: 'streak'
   },
   
-  // Challenge achievements
+  // Quiz achievements
   {
-    title: 'Challenge Accepted',
-    description: 'Complete your first coding challenge',
-    category: 'challenges',
-    icon: 'code-slash-outline',
+    title: 'Quiz Novice',
+    description: 'Complete your first quiz',
+    category: 'completion',
+    icon: 'help-circle-outline',
     color: '#06B6D4',
     targetValue: 1,
     xpReward: 40,
-    requirement: 'completedChallenges'
+    requirement: 'completedQuizzes'
   },
   {
-    title: 'Problem Solver',
-    description: 'Complete 10 coding challenges',
-    category: 'challenges',
-    icon: 'code-slash',
+    title: 'Quiz Master',
+    description: 'Complete 10 quizzes',
+    category: 'completion',
+    icon: 'help-circle',
     color: '#0EA5E9',
     targetValue: 10,
     xpReward: 150,
-    requirement: 'completedChallenges'
+    requirement: 'completedQuizzes'
   },
-  
-  // Course completion
-  {
-    title: 'Course Graduate',
-    description: 'Complete your first full course',
-    category: 'completion',
-    icon: 'trophy-outline',
-    color: '#FBBF24',
-    targetValue: 1,
-    xpReward: 200,
-    requirement: 'completedCourses'
-  },
-  
-  // Quiz accomplishments
   {
     title: 'Perfect Score',
     description: 'Get 100% on a quiz',
-    category: 'challenges',
+    category: 'completion',
     icon: 'checkmark-circle-outline',
     color: '#10B981',
     targetValue: 1,
     xpReward: 50,
     requirement: 'perfectQuizzes'
   },
-  
-  // Time spent coding
   {
-    title: 'Coding Enthusiast',
-    description: 'Spend 10 hours coding',
-    category: 'learning',
-    icon: 'time-outline',
-    color: '#6366F1',
-    targetValue: 10,
-    xpReward: 100,
-    requirement: 'codingHours'
-  },
-  {
-    title: 'Code Warrior',
-    description: 'Spend 50 hours coding',
-    category: 'learning',
-    icon: 'timer-outline',
+    title: 'Consistent Performer',
+    description: 'Maintain an average quiz score above 80%',
+    category: 'completion',
+    icon: 'trending-up-outline',
     color: '#8B5CF6',
-    targetValue: 50,
-    xpReward: 300,
-    requirement: 'codingHours'
+    targetValue: 80,
+    xpReward: 200,
+    requirement: 'quizAverage'
   }
 ];
 

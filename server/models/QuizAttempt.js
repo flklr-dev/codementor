@@ -23,6 +23,10 @@ const quizAttemptSchema = new mongoose.Schema({
     type: Number,
     required: true
   },
+  maxScore: {
+    type: Number,
+    default: 100
+  },
   completed: {
     type: Boolean,
     default: false
@@ -32,10 +36,24 @@ const quizAttemptSchema = new mongoose.Schema({
     default: 0
   },
   completedAt: {
-    type: Date
+    type: Date,
+    default: Date.now
   }
 }, {
   timestamps: true
+});
+
+// Add index for faster queries
+quizAttemptSchema.index({ userId: 1, quizId: 1 });
+quizAttemptSchema.index({ userId: 1, courseId: 1 });
+
+// Add pre-save middleware to ensure completed is set correctly
+quizAttemptSchema.pre('save', function(next) {
+  // If this is a new quiz attempt, ensure completed is set to true
+  if (this.isNew && this.completed !== false) {
+    this.completed = true;
+  }
+  next();
 });
 
 const QuizAttempt = mongoose.model('QuizAttempt', quizAttemptSchema);

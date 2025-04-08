@@ -3,6 +3,9 @@ const router = express.Router();
 const Quiz = require('../models/Quiz');
 const QuizAttempt = require('../models/QuizAttempt');
 const auth = require('../middleware/auth');
+const UserProgress = require('../models/UserProgress');
+const User = require('../models/User');
+const { updateAchievements } = require('../utils/achievements');
 
 // Get quiz for a course
 router.get('/course/:courseId', auth, async (req, res) => {
@@ -42,8 +45,11 @@ router.get('/course/:courseId', auth, async (req, res) => {
 router.post('/submit', auth, async (req, res) => {
   try {
     const { quizId, courseId, answers } = req.body;
-    const quiz = await Quiz.findById(quizId);
+    const userId = req.user._id;
     
+    console.log('Submitting quiz:', { quizId, courseId, userId });
+    
+    const quiz = await Quiz.findById(quizId);
     if (!quiz) {
       return res.status(404).json({ message: 'Quiz not found' });
     }
@@ -62,24 +68,47 @@ router.post('/submit', auth, async (req, res) => {
 
     // Create quiz attempt
     const attempt = new QuizAttempt({
-      userId: req.user._id,
+      userId,
       quizId,
       courseId,
       answers,
       score,
+      maxScore: 100,
       completed: true,
       xpEarned,
       completedAt: new Date()
     });
 
     await attempt.save();
+    console.log('Quiz attempt saved:', attempt._id);
 
-    // If passed, update user XP
+    // Update user progress
+    let userProgress = await UserProgress.findOne({ userId });
+    if (!userProgress) {
+      userProgress = new UserProgress({ userId });
+    }
+
+    // Add quiz score to user progress
+    userProgress.quizScores.push({
+      quizId,
+      score,
+      maxScore: 100,
+      completedAt: new Date()
+    });
+
+    await userProgress.save();
+    console.log('User progress updated with quiz score');
+
+    // If passed, update user XP and check achievements
     if (passed) {
-      req.user.xp += xpEarned;
-      const levelsGained = req.user.checkAndLevelUp();
-      await req.user.save();
-
+      const user = await User.findById(userId);
+      user.xp += xpEarned;
+      const levelsGained = user.checkAndLevelUp();
+      await user.save();
+      
+      // Check achievements
+      await updateAchievements(userId);
+      
       return res.json({
         success: true,
         score,
