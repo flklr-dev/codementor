@@ -11,232 +11,339 @@ const RETRY_DELAY = 1000; // 1 second
 // Sleep function for retry delay
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Query type detection
+// Enhanced query type detection using more sophisticated patterns
 function detectQueryType(message) {
-  const queryTypes = {
+  if (!message || typeof message !== 'string' || message.trim().length === 0) {
+    return {
+      type: 'unclear',
+      response: "I'm not sure I understand your question. Could you please provide more details?"
+    };
+  }
+
+  const messageLower = message.toLowerCase().trim();
+  
+  // NLU-inspired pattern detection with context awareness
+  const patterns = {
+    // Special categories with direct responses
     greeting: {
-      patterns: ['hi', 'hello', 'hey', 'greetings'],
-      response: "Hey there! 👋 I'm your coding mentor. What would you like to learn about today? I can help with:\n• Code explanations\n• Debugging\n• Best practices\n• Project ideas\n• Learning paths"
+      // More precise greeting detection to avoid false positives
+      exactPhrases: ['^hi$', '^hey$', '^hello$', '^hi there$', '^hey there$', '^hello there$'],
+      startPhrases: ['^hi\\s', '^hey\\s', '^hello\\s', '^greetings\\s'],
+      response: "I can assist you with:\n\n• Code explanations and concepts\n• Debugging and troubleshooting\n• Best practices and design patterns\n• Learning paths and resources\n• Project architecture and implementation\n\nWhat would you like to learn about today?"
     },
     unclear: {
       patterns: [/^[^a-zA-Z0-9\s]+$/, /^[?]+$/, /^[a-zA-Z]{1,3}$/],
-      response: "I'm not sure what you mean. Try asking me about:\n• How to write code\n• Debugging issues\n• Learning programming\n• Project ideas\n• Best practices"
+      response: "I'm not sure I understand your question. Could you please rephrase it? I can help with:\n\n• Programming concepts and languages\n• Code debugging and optimization\n• Software architecture and design\n• Learning resources and tutorials\n• Best practices and coding standards"
     },
     nonCoding: {
-      patterns: ['joke', 'name', 'who are you', 'tell me about yourself'],
-      response: "I'm CodeMentor AI, your coding tutor! While I can chat, I'm best at helping you with programming. Need help with:\n• JavaScript, Python, or other languages\n• Debugging code\n• Building projects\n• Learning new frameworks"
+      keywords: ['joke', 'name', 'who are you', 'tell me about yourself', 'how are you'],
+      response: "I'm CodeMentor, your programming assistant focused on helping with code-related questions rather than general conversation. I can assist with:\n\n• Programming languages and frameworks\n• Debugging and troubleshooting\n• Design patterns and best practices\n• Learning resources for developers\n• Software architecture and implementation"
     },
+    
+    // Classification categories for specialized responses
     codeExplanation: {
-      patterns: ['what is', 'explain', 'how does', 'tell me about', 'meaning of'],
+      keywords: ['what is', 'explain', 'how does', 'tell me about', 'meaning of', 'concept of', 'understand'],
+      patternWeight: 1.5,
       type: 'explanation'
     },
     debugging: {
-      patterns: ['error', 'bug', 'not working', 'undefined', 'failed', 'exception'],
+      keywords: ['error', 'bug', 'not working', 'undefined', 'failed', 'exception', 'fix', 'problem', 'issue', 'debug', 'troubleshoot'],
+      patternWeight: 2.0,
       type: 'debugging'
     },
     codeGeneration: {
-      patterns: ['generate', 'create', 'write', 'make', 'build', 'show me'],
+      keywords: ['generate', 'create', 'write', 'make', 'build', 'show me', 'implement', 'code', 'develop', 'how to'],
+      patternWeight: 1.8,
       type: 'generation'
     },
     projectGuidance: {
-      patterns: ['structure', 'architecture', 'design', 'best practice', 'recommend'],
+      keywords: ['structure', 'architecture', 'design', 'best practice', 'recommend', 'organize', 'pattern', 'approach'],
+      patternWeight: 1.3,
       type: 'guidance'
     },
     careerAdvice: {
-      patterns: ['learn', 'career', 'path', 'roadmap', 'portfolio', 'interview'],
+      keywords: ['learn', 'career', 'path', 'roadmap', 'portfolio', 'interview', 'job', 'skill', 'study'],
+      patternWeight: 1.0,
       type: 'career'
     }
   };
 
-  const messageLower = message.toLowerCase();
+  // Check for exact greeting matches with more precise logic
+  // Only detect greetings if they are standalone or start the message
+  let isSimpleGreeting = false;
   
-  // Check for greeting patterns
-  if (queryTypes.greeting.patterns.some(pattern => messageLower.includes(pattern))) {
-    return queryTypes.greeting;
+  // Check exact phrases like "hi", "hey", "hello"
+  if (patterns.greeting.exactPhrases.some(phrase => {
+    const regex = new RegExp(phrase);
+    return regex.test(messageLower);
+  })) {
+    isSimpleGreeting = true;
   }
-
+  
+  // Check start phrases like "hi ", "hey ", "hello "
+  if (!isSimpleGreeting && patterns.greeting.startPhrases.some(phrase => {
+    const regex = new RegExp(phrase);
+    return regex.test(messageLower);
+  })) {
+    // Make sure it's not a coding question that happens to start with a greeting
+    if (!messageLower.includes('code') && 
+        !messageLower.includes('program') && 
+        !messageLower.includes('function') && 
+        !messageLower.includes('write') && 
+        !messageLower.includes('create') &&
+        !messageLower.includes('implement') &&
+        !messageLower.includes('develop')) {
+      isSimpleGreeting = true;
+    }
+  }
+  
+  if (isSimpleGreeting) {
+    return patterns.greeting;
+  }
+  
   // Check for unclear patterns
-  if (queryTypes.unclear.patterns.some(pattern => pattern.test(messageLower))) {
-    return queryTypes.unclear;
+  if (patterns.unclear.patterns.some(pattern => pattern.test(messageLower))) {
+    return patterns.unclear;
   }
 
-  // Check for non-coding patterns
-  if (queryTypes.nonCoding.patterns.some(pattern => messageLower.includes(pattern))) {
-    return queryTypes.nonCoding;
+  // Check for non-coding queries
+  if (patterns.nonCoding.keywords.some(keyword => messageLower.includes(keyword)) && 
+      !messageLower.includes('code') && 
+      !messageLower.includes('program')) {
+    return patterns.nonCoding;
   }
 
-  // Check for other query types
-  for (const [type, data] of Object.entries(queryTypes)) {
-    if (data.patterns && data.type) {
-      if (data.patterns.some(pattern => messageLower.includes(pattern))) {
-        return data;
-      }
+  // Score-based categorization for other query types
+  const scores = {};
+  for (const [category, data] of Object.entries(patterns)) {
+    if (data.keywords && data.type) {
+      scores[category] = data.keywords.filter(keyword => 
+        messageLower.includes(keyword)
+      ).length * (data.patternWeight || 1);
     }
   }
 
-  // Default to code explanation if no specific type is detected
-  return queryTypes.codeExplanation;
-}
-
-// Determine user skill level based on context
-function determineSkillLevel(context) {
-  if (!context) return 'beginner';
+  // Add some context-awareness for specific programming tasks
+  if (messageLower.includes('write') || messageLower.includes('create') || messageLower.includes('implement')) {
+    scores.codeGeneration += 2.0;
+  }
   
+  if (messageLower.includes('explain') || messageLower.includes('what is')) {
+    scores.codeExplanation += 1.5;
+  }
+  
+  if (messageLower.includes('fix') || messageLower.includes('error') || messageLower.includes('bug')) {
+    scores.debugging += 2.0;
+  }
+
+  // Find the category with the highest score
+  let highestCategory = 'codeExplanation'; // Default
+  let highestScore = 0;
+  
+  for (const [category, score] of Object.entries(scores)) {
+    if (score > highestScore) {
+      highestScore = score;
+      highestCategory = category;
+    }
+  }
+  
+  return patterns[highestCategory];
+}
+
+// Enhanced skill level detection with better context awareness
+function determineSkillLevel(context) {
+  if (!context || typeof context !== 'string' || context.trim().length === 0) {
+    return 'beginner';
+  }
+  
+  const contextLower = context.toLowerCase();
+  
+  // Define indicator keywords with weights
   const indicators = {
-    beginner: ['basic', 'simple', 'explain', 'what is', 'how do i', 'start', 'beginner'],
-    intermediate: ['optimize', 'improve', 'better', 'alternative', 'best practice'],
-    advanced: ['advanced', 'complex', 'performance', 'architecture', 'scaling', 'production']
+    beginner: {
+      keywords: ['basic', 'simple', 'explain', 'what is', 'how do i', 'start', 'beginner', 'new to', 'learning', 'fundamentals'],
+      weight: 1.0
+    },
+    intermediate: {
+      keywords: ['optimize', 'improve', 'better', 'alternative', 'best practice', 'efficient', 'refactor', 'pattern', 'clean code'],
+      weight: 1.2
+    },
+    advanced: {
+      keywords: ['advanced', 'complex', 'performance', 'architecture', 'scaling', 'production', 'enterprise', 'security', 'concurrency', 'optimization'],
+      weight: 1.5
+    }
   };
 
-  const contextLower = context.toLowerCase();
-  let skillLevel = 'beginner';
-  let maxMatches = 0;
+  // Calculate weighted scores for each level
+  const scores = {};
+  
+  for (const [level, data] of Object.entries(indicators)) {
+    const matches = data.keywords.filter(keyword => contextLower.includes(keyword)).length;
+    scores[level] = matches * data.weight;
+  }
 
-  for (const [level, keywords] of Object.entries(indicators)) {
-    const matches = keywords.filter(keyword => contextLower.includes(keyword)).length;
-    if (matches > maxMatches) {
-      maxMatches = matches;
-      skillLevel = level;
+  // Find the level with the highest score
+  let highestLevel = 'beginner';
+  let highestScore = 0;
+  
+  for (const [level, score] of Object.entries(scores)) {
+    if (score > highestScore) {
+      highestScore = score;
+      highestLevel = level;
     }
   }
 
-  return skillLevel;
+  return highestLevel;
 }
 
-// Generate appropriate prompt based on query type and skill level
+// Dynamic prompt generation with optimized length based on query type
 function generatePrompt(message, context, skillLevel, queryType) {
-  const basePrompt = `You are an expert coding mentor. Provide clear, concise, and helpful responses with code examples in markdown blocks.
+  // Core instructions that apply to all prompts
+  const basePrompt = `You are a professional coding mentor. Provide concise, helpful responses.
 
-Previous context: ${context}
-Current question: ${message}
+Question: ${message}`;
 
-Guidelines:
-- Keep responses under 3-4 sentences for basic concepts
-- Use markdown code blocks with language specification
-- Focus on the most important information
-- Be direct and to the point
-- Include only one code example when relevant
-- Avoid lengthy explanations unless specifically asked`;
-
-  const queryTypeGuidelines = {
-    explanation: `
-Additional guidelines for code explanation:
-- Provide a brief, clear definition
-- Include one simple code example
-- Focus on key concepts only
-- Avoid lengthy analogies
-- Keep it under 2-3 paragraphs`,
-    
-    debugging: `
-Additional guidelines for debugging:
-- Identify the root cause quickly
-- Provide a concise solution
-- Include one code example if needed
-- Focus on the most common fixes
-- Keep explanations brief`,
-    
-    generation: `
-Additional guidelines for code generation:
-- Provide one complete, working example
-- Include essential comments only
-- Focus on the main functionality
-- Keep code concise and readable
-- Avoid unnecessary complexity`,
-    
-    guidance: `
-Additional guidelines for project guidance:
-- Provide key points only
-- Focus on essential decisions
-- Include one example if relevant
-- Keep recommendations brief
-- Prioritize most important aspects`,
-    
-    career: `
-Additional guidelines for career advice:
-- Provide key steps only
-- Focus on essential resources
-- Keep recommendations concise
-- Include one practical example
-- Prioritize most important tips`
-  };
-
-  const skillSpecificGuidelines = {
-    beginner: `
-Additional guidelines for beginner:
-- Use simple language
-- Include one basic example
-- Focus on core concepts
-- Keep explanations short
-- Avoid technical jargon`,
-    
-    intermediate: `
-Additional guidelines for intermediate:
-- Focus on key concepts
-- Include one practical example
-- Keep explanations concise
-- Use technical terms appropriately
-- Focus on best practices`,
-    
-    advanced: `
-Additional guidelines for advanced:
-- Focus on key insights
-- Include one advanced example
-- Keep explanations brief
-- Use precise technical terms
-- Focus on optimization`
-  };
-
-  // If it's a special response type (greeting, unclear, nonCoding), return the predefined response
+  // Skip detailed prompt for special response types
   if (queryType.response) {
     return queryType.response;
   }
 
-  return `${basePrompt}${queryTypeGuidelines[queryType.type]}${skillSpecificGuidelines[skillLevel]}
+  // Define specific prompt additions based on query type
+  const queryGuidelines = {
+    explanation: `Provide brief, clear explanations with minimal examples. Focus only on essential concepts.`,
+    debugging: `Identify key issues and suggest fixes with minimal explanation. Be direct and to the point.`,
+    generation: `Write clean, minimal code that solves the request. Include only essential comments. Do not explain how to run the code unless specifically asked. Provide only the code with minimal surrounding text.`,
+    guidance: `Provide concise, actionable advice focusing on crucial points. Avoid lengthy explanations.`,
+    career: `Give direct, practical advice without unnecessary elaboration.`
+  };
+
+  // Adjust prompt based on skill level
+  const skillGuidelines = {
+    beginner: `Keep explanations simple and minimal. Avoid unnecessary details.`,
+    intermediate: `Skip basic explanations. Focus on the core solution.`,
+    advanced: `Provide expert-level solutions with minimal explanation.`
+  };
+
+  // Build a concise but effective prompt
+  const prompt = `${basePrompt}
+
+Key requirements:
+- ${queryGuidelines[queryType.type]}
+- ${skillGuidelines[skillLevel]}
+- Use code blocks with appropriate language specification
+- BE CONCISE. Avoid detailed explanations about running the code or how it works unless explicitly asked
+- For code generation, provide ONLY the code solution with minimal introduction
+- Minimize code comments to only what's absolutely necessary
+- No need to explain the obvious parts of the code
+- Skip explanations about compiling, running, or installing unless specifically asked
 
 Response:`;
+
+  return prompt;
 }
 
+// Improved API request with enhanced error handling
 async function makeAPIRequest(prompt, retryCount = 0) {
   try {
+    console.log(`Making API request with ${prompt.length} characters`);
+    
     const response = await axios.post(
       'https://api.together.xyz/inference',
       {
         model: MODEL_ID,
         prompt: prompt,
-        max_tokens: 500, // Reduced for more concise responses
+        max_tokens: 600,
         temperature: 0.7,
         top_p: 0.9,
         top_k: 50,
         repetition_penalty: 1.1,
-        stop: ['</s>', 'Human:', 'Assistant:', '\n\n\n'], // Added extra stop token
+        stop: ['</s>', 'Human:', 'Assistant:', '\n\n\n'],
       },
       {
         headers: {
           'Authorization': `Bearer ${TOGETHER_API_KEY}`,
           'Content-Type': 'application/json',
         },
+        timeout: 30000, // 30 second timeout
       }
     );
 
     return response;
   } catch (error) {
-    if (retryCount < MAX_RETRIES && 
-        (error.response?.status === 429 || error.response?.status === 500)) {
-      console.log(`Retrying request (${retryCount + 1}/${MAX_RETRIES})...`);
-      await sleep(RETRY_DELAY * (retryCount + 1));
-      return makeAPIRequest(prompt, retryCount + 1);
+    // Enhanced error handling with more specific retry logic
+    if (retryCount < MAX_RETRIES) {
+      if (error.response?.status === 429) {
+        console.log(`Rate limit exceeded, retrying (${retryCount + 1}/${MAX_RETRIES}) after delay...`);
+        await sleep(RETRY_DELAY * Math.pow(2, retryCount)); // Exponential backoff
+        return makeAPIRequest(prompt, retryCount + 1);
+      } else if (error.response?.status === 500 || error.response?.status === 503) {
+        console.log(`Server error, retrying (${retryCount + 1}/${MAX_RETRIES})...`);
+        await sleep(RETRY_DELAY * (retryCount + 1));
+        return makeAPIRequest(prompt, retryCount + 1);
+      } else if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+        console.log(`Request timeout, retrying (${retryCount + 1}/${MAX_RETRIES})...`);
+        await sleep(RETRY_DELAY * (retryCount +.5));
+        return makeAPIRequest(prompt, retryCount + 1);
+      }
     }
+    
+    // Log the error for debugging
+    console.error('API request error:', {
+      message: error.message,
+      status: error.response?.status,
+      data: error.response?.data,
+      code: error.code,
+    });
+    
     throw error;
   }
 }
 
+// Main response generation function with improved error handling
 async function generateAIResponse(message, context = '') {
   try {
-    // Detect query type
-    const queryType = detectQueryType(message);
-    console.log('Detected query type:', queryType);
+    // Input validation and length limits
+    if (!message || typeof message !== 'string') {
+      return "Please provide a valid question or request.";
+    }
+    
+    // Handle excessive message length (limit to ~300 lines or ~10000 chars)
+    const MAX_CHARS = 10000;
+    const MAX_LINES = 300;
+    let processedMessage = message;
+    
+    // Check if message exceeds line limit
+    const lineCount = (message.match(/\n/g) || []).length + 1;
+    if (lineCount > MAX_LINES) {
+      console.log(`Message too long (${lineCount} lines). Trimming to ${MAX_LINES} lines...`);
+      const lines = message.split('\n');
+      // Keep first 2/3 and last 1/3 of allowed lines to maintain context
+      const keepStart = Math.floor(MAX_LINES * 0.67);
+      const keepEnd = MAX_LINES - keepStart;
+      processedMessage = [
+        ...lines.slice(0, keepStart),
+        `\n[... ${lineCount - MAX_LINES} more lines omitted for length ...]\n`,
+        ...lines.slice(-keepEnd)
+      ].join('\n');
+    }
+    
+    // Check if processed message still exceeds character limit
+    if (processedMessage.length > MAX_CHARS) {
+      console.log(`Message too long (${processedMessage.length} chars). Trimming to ${MAX_CHARS} chars...`);
+      const keepStart = Math.floor(MAX_CHARS * 0.67);
+      const keepEnd = MAX_CHARS - keepStart - 50; // 50 chars for the indicator
+      processedMessage = 
+        processedMessage.substring(0, keepStart) + 
+        `\n[... ${processedMessage.length - MAX_CHARS} characters omitted for length ...]\n` + 
+        processedMessage.substring(processedMessage.length - keepEnd);
+    }
+    
+    // Detect query type with improved detection
+    const queryType = detectQueryType(processedMessage);
+    console.log('Detected query type:', queryType.type || 'special response');
+    console.log(`Processing message [${processedMessage.length} chars, ~${(processedMessage.match(/\n/g) || []).length + 1} lines]`);
 
-    // If it's a special response type, return the predefined response
+    // Handle special response cases
     if (queryType.response) {
       return queryType.response;
     }
@@ -245,30 +352,21 @@ async function generateAIResponse(message, context = '') {
     const skillLevel = determineSkillLevel(context);
     console.log('Determined skill level:', skillLevel);
 
-    // Generate appropriate prompt
-    const prompt = generatePrompt(message, context, skillLevel, queryType);
+    // Generate optimized prompt
+    const prompt = generatePrompt(processedMessage, context, skillLevel, queryType);
 
     // Make API request with retry logic
     const response = await makeAPIRequest(prompt);
 
-    // Log the response for debugging
-    console.log('Together AI API Response:', JSON.stringify(response.data, null, 2));
-
-    // Check for API errors
-    if (response.data.error) {
-      console.error('Together AI API error:', response.data.error);
-      throw new Error(response.data.error);
-    }
-
-    // Extract and clean the generated response
+    // Process the response
     let generatedText = '';
     
     // Handle different response formats
-    if (response.data.output && response.data.output.choices && response.data.output.choices[0]) {
+    if (response.data.output?.choices?.[0]) {
       generatedText = response.data.output.choices[0].text;
-    } else if (response.data.output && response.data.output.text) {
+    } else if (response.data.output?.text) {
       generatedText = response.data.output.text;
-    } else if (response.data.choices && response.data.choices[0]) {
+    } else if (response.data.choices?.[0]) {
       generatedText = response.data.choices[0].text;
     } else if (response.data.text) {
       generatedText = response.data.text;
@@ -276,50 +374,79 @@ async function generateAIResponse(message, context = '') {
       throw new Error('Unexpected API response format');
     }
     
-    // Remove the prompt from the response
-    generatedText = generatedText.replace(prompt, '').trim();
-    
-    // Clean up any remaining artifacts
+    // Clean up the response
     generatedText = generatedText
+      .replace(prompt, '')
       .replace(/^Assistant:|^Human:|^System:/g, '')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
     
-    // Ensure code blocks are properly formatted
-    generatedText = generatedText.replace(/```(\w+)?\n/g, (match, lang) => {
-      return `\`\`\`${lang || 'javascript'}\n`;
+    // Ensure code blocks have language specification without hardcoding javascript
+    generatedText = generatedText.replace(/```(\s*)(?!\w+)/g, (match) => {
+      // Detect language from context if possible
+      const languageHints = {
+        python: /python|django|flask|numpy|pandas|scipy/i,
+        javascript: /javascript|js|node|react|vue|angular/i,
+        typescript: /typescript|ts|angular|react|vue/i,
+        java: /java|spring|hibernate|android/i,
+        ruby: /ruby|rails/i,
+        csharp: /c#|csharp|\.net|asp\.net/i,
+        php: /php|laravel|symfony/i,
+        go: /golang|go lang/i,
+        rust: /rust|cargo/i,
+        swift: /swift|ios|xcode/i,
+        kotlin: /kotlin|android/i,
+        html: /html|markup/i,
+        css: /css|scss|sass|style/i,
+        sql: /sql|database|query/i,
+      };
+      
+      let detectedLanguage = '';
+      
+      for (const [lang, pattern] of Object.entries(languageHints)) {
+        if (pattern.test(processedMessage) || pattern.test(context || '')) {
+          detectedLanguage = lang;
+          break;
+        }
+      }
+      
+      return `\`\`\`${detectedLanguage || 'code'}\n`;
     });
 
-    // If the response is too short or empty, provide a fallback
+    // Fallback for empty responses
     if (!generatedText || generatedText.length < 10) {
       generatedText = "I apologize, but I couldn't generate a proper response. Please try rephrasing your question or ask something more specific.";
     }
     
     return generatedText;
   } catch (error) {
-    console.error('Error generating AI response:', error);
+    console.error('Error generating AI response:', error.message);
     
-    // Log the full error details
-    if (error.response) {
-      console.error('Error response data:', error.response.data);
-      console.error('Error response status:', error.response.status);
-    }
-    
-    // Provide more specific error messages
-    if (error.response?.status === 402) {
-      throw new Error('API quota exceeded. Please try again later or contact support.');
+    // Enhanced error handling with more specific error messages
+    if (error.response?.status === 400) {
+      throw new Error('The request was invalid. This might be due to an issue with your input or the API configuration.');
     } else if (error.response?.status === 401) {
-      throw new Error('Invalid API key. Please check your Together AI API key configuration.');
+      throw new Error('Authentication failed. Please check your API key configuration.');
+    } else if (error.response?.status === 402) {
+      throw new Error('API quota exceeded. Please check your API usage limits.');
     } else if (error.response?.status === 429) {
-      throw new Error('Too many requests. Please wait a moment before trying again.');
-    } else if (error.response?.status === 500) {
-      throw new Error('Together AI service is currently unavailable. Please try again later.');
+      throw new Error('You\'ve sent too many requests in a short period. Please try again in a few moments.');
+    } else if (error.response?.status >= 500) {
+      throw new Error('The AI service is currently experiencing issues. Please try again later.');
+    } else if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+      throw new Error('The request timed out. This might be due to high server load or connectivity issues.');
     } else {
-      throw new Error('Failed to generate AI response. Please try again later.');
+      throw new Error(`Failed to generate a response: ${error.message}`);
     }
   }
 }
 
 module.exports = {
   generateAIResponse,
+  // Export internal functions for testing
+  _internal: {
+    detectQueryType,
+    determineSkillLevel,
+    generatePrompt
+  }
 }; 

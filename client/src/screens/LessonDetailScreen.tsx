@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, ScrollView, ActivityIndicator, Alert, TouchableOpacity, ViewStyle, TextStyle } from 'react-native';
+import React, { useEffect, useState, useRef } from 'react';
+import { StyleSheet, View, ScrollView, ActivityIndicator, Alert, TouchableOpacity, ViewStyle, TextStyle, Modal, RefreshControl } from 'react-native';
 import {
   Text,
   Card,
@@ -13,6 +13,7 @@ import {
   Dialog,
   Portal,
   Paragraph,
+  TextInput,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,6 +27,7 @@ import api from '../services/api';
 import { Animated as RNAnimated } from 'react-native';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { updateUserData } from '../store/slices/authSlice';
+import * as Clipboard from 'expo-clipboard';
 
 type RootStackParamList = {
   Home: undefined;
@@ -69,52 +71,95 @@ interface Quiz {
 // Define the style types
 interface Styles {
   container: ViewStyle;
-  headerGradient: ViewStyle;
   header: ViewStyle;
   headerTitle: TextStyle;
   scrollView: ViewStyle;
-  titleCard: ViewStyle;
+  titleSection: ViewStyle;
   lessonTitle: TextStyle;
+  metaRow: ViewStyle;
   topicChip: ViewStyle;
   topicChipText: TextStyle;
-  metaInfo: ViewStyle;
-  metaItem: ViewStyle;
-  metaText: TextStyle;
-  contentCard: ViewStyle;
-  sectionTitleContainer: ViewStyle;
-  sectionTitleGradient: ViewStyle;
+  durationText: TextStyle;
+  xpText: TextStyle;
+  progressContainer: ViewStyle;
+  progressLabelRow: ViewStyle;
+  progressLabel: TextStyle;
+  progressPercent: TextStyle;
+  progressBar: ViewStyle;
+  contentContainer: ViewStyle;
+  sectionContainer: ViewStyle;
   sectionTitle: TextStyle;
-  sectionText: TextStyle;
-  codeBlock: ViewStyle;
+  contentText: TextStyle;
+  codeContainer: ViewStyle;
   codeHeader: ViewStyle;
-  codeLanguage: TextStyle;
-  codeContent: TextStyle;
+  windowButtons: ViewStyle;
+  windowBtn: ViewStyle;
+  closeBtn: ViewStyle;
+  minimizeBtn: ViewStyle;
+  maximizeBtn: ViewStyle;
+  codeLang: TextStyle;
+  code: TextStyle;
   imageContainer: ViewStyle;
-  imagePlaceholderGradient: ViewStyle;
-  imagePlaceholder: TextStyle;
+  imageBox: ViewStyle;
   imageCaption: TextStyle;
-  navigationButtonsContainer: ViewStyle;
-  navButton: ViewStyle;
-  navButtonContent: ViewStyle;
-  navButtonLabel: TextStyle;
+  actionContainer: ViewStyle;
+  actionButton: ViewStyle;
   snackbar: ViewStyle;
-  bottomPadding: ViewStyle;
+  xpDialog: ViewStyle;
+  completionContainer: ViewStyle;
+  xpBadge: ViewStyle;
+  xpAmount: TextStyle;
+  xpLabel: TextStyle;
+  completionTitle: TextStyle;
+  completionButton: ViewStyle;
   loadingContainer: ViewStyle;
   loadingText: TextStyle;
   errorContainer: ViewStyle;
   errorText: TextStyle;
-  xpDialog: ViewStyle;
-  xpContainer: ViewStyle;
-  xpGradient: ViewStyle;
-  xpBadge: ViewStyle;
-  xpAmount: TextStyle;
-  xpLabel: TextStyle;
-  xpText: TextStyle;
   lockedContainer: ViewStyle;
   lockedContent: ViewStyle;
   lockedTitle: TextStyle;
   lockedText: TextStyle;
   backButton: ViewStyle;
+  divider: ViewStyle;
+  buttonCenter: ViewStyle;
+  buttonLabel: TextStyle;
+  completionButtonLabel: TextStyle;
+  questionText: TextStyle;
+  optionsContainer: ViewStyle;
+  optionItem: ViewStyle;
+  selectedOption: ViewStyle;
+  optionText: TextStyle;
+  confirmDialog: ViewStyle;
+  confirmContent: ViewStyle;
+  confirmIcon: ViewStyle;
+  confirmTitle: TextStyle;
+  confirmXP: TextStyle;
+  confirmButtons: ViewStyle;
+  cancelButton: ViewStyle;
+  cancelButtonLabel: TextStyle;
+  completeButton: ViewStyle;
+  completeButtonLabel: TextStyle;
+  copyCodeButton: ViewStyle;
+  copyCodeText: TextStyle;
+  codeActions: ViewStyle;
+  aiChatButton: ViewStyle;
+  aiChatModal: ViewStyle;
+  aiChatContainer: ViewStyle;
+  aiChatHeader: ViewStyle;
+  aiChatTitle: TextStyle;
+  aiChatMessages: ViewStyle;
+  aiMessage: ViewStyle;
+  userMessage: ViewStyle;
+  aiMessageText: TextStyle;
+  userMessageText: TextStyle;
+  messageWrapper: ViewStyle;
+  aiChatInputContainer: ViewStyle;
+  aiChatInput: ViewStyle;
+  aiChatSendButton: ViewStyle;
+  aiChatCloseButton: ViewStyle;
+  aiAssistantAvatar: ViewStyle;
+  aiLoadingIndicator: ViewStyle;
 }
 
 export default function LessonDetailScreen() {
@@ -146,6 +191,14 @@ export default function LessonDetailScreen() {
   const [quizStatus, setQuizStatus] = useState<{ completed: boolean; passed: boolean } | null>(null);
   const [canAccess, setCanAccess] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [showAiChat, setShowAiChat] = useState(false);
+  const [aiMessage, setAiMessage] = useState('');
+  const [aiMessages, setAiMessages] = useState<{type: 'ai' | 'user', content: string}[]>([
+    {type: 'ai', content: "Hi! I'm your AI assistant for this lesson. How can I help you understand the content better?"}
+  ]);
+  const [aiLoading, setAiLoading] = useState(false);
+  const aiChatScrollViewRef = useRef<ScrollView>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     const fetchLesson = async () => {
@@ -208,7 +261,7 @@ export default function LessonDetailScreen() {
               try {
                 const courseId = lesson.courseId as string;
                 console.log('Fetching quiz for course:', courseId);
-                const response = await api.get(`/quizzes/course/${courseId}`);
+                const response = await api.get(`/quiz/course/${courseId}`);
                 console.log('Quiz data received:', response.data);
                 setQuiz(response.data);
               } catch (error: any) {
@@ -239,7 +292,7 @@ export default function LessonDetailScreen() {
     const checkQuizStatus = async () => {
       if (isLastLesson && lesson?.courseId) {
         try {
-          const response = await api.get(`/quizzes/status/${lesson.courseId}`);
+          const response = await api.get(`/quiz/status/${lesson.courseId}`);
           setQuizStatus(response.data);
         } catch (error) {
           console.error('Error checking quiz status:', error);
@@ -332,6 +385,9 @@ export default function LessonDetailScreen() {
                     xpEarned: xpEarned
                   });
                 }
+                
+                // Update user data in Redux store
+                await dispatch(updateUserData({}));
                 return; // Skip the rest of the function
               }
             }
@@ -400,56 +456,18 @@ export default function LessonDetailScreen() {
         setProgress(1);
         setIsCompleted(true);
         
-        // Show XP celebration
+        // Show simple XP celebration
         setEarnedXp(result.xpEarned || 0);
         setShowXpCelebration(true);
         
         // Update user data in Redux store
-        await dispatch(updateUserData());
-        
-        // Trigger animation after dialog is visible
-        setTimeout(animateXpCelebration, 100);
+        await dispatch(updateUserData({}));
       }
     } catch (error) {
       console.error('Error completing lesson:', error);
       setSnackbarMessage('Error completing lesson. Please try again.');
       setShowSnackbar(true);
     }
-  };
-
-  // Replace the existing animateXpCelebration function with this improved version
-  const animateXpCelebration = () => {
-    // Reset animation values
-    xpScaleAnim.setValue(0.2);
-    textFadeAnim.setValue(0);
-    
-    // Create a spring animation for the XP badge
-    RNAnimated.spring(xpScaleAnim, {
-      toValue: 1,
-      tension: 50,
-      friction: 7,
-      useNativeDriver: true,
-    }).start();
-    
-    // Create a sequence for the text fade in
-    RNAnimated.sequence([
-      RNAnimated.delay(300),
-      RNAnimated.timing(textFadeAnim, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      })
-    ]).start();
-    
-    // Auto-dismiss after 2.5 seconds
-    setTimeout(() => {
-      setShowXpCelebration(false);
-      if (isLastLesson && !quizStatus?.passed) {
-        handleStartQuiz();
-      } else if (nextLessonId) {
-        continueToNextLesson();
-      }
-    }, 2500);
   };
 
   // Add these functions to handle quiz
@@ -475,7 +493,7 @@ export default function LessonDetailScreen() {
     if (!quiz || !user || !lesson) return;
 
     try {
-      const response = await api.post('/quizzes/submit', {
+      const response = await api.post('/quiz/submit', {
         quizId: quiz._id,
         courseId: lesson.courseId,
         answers: selectedAnswers
@@ -487,7 +505,7 @@ export default function LessonDetailScreen() {
         setShowXpCelebration(true);
         
         // Update user data in Redux store
-        await dispatch(updateUserData());
+        await dispatch(updateUserData({}));
         
         // Navigate back to course with quiz completion state
         setTimeout(() => {
@@ -505,6 +523,113 @@ export default function LessonDetailScreen() {
       console.error('Error submitting quiz:', error.response?.data || error.message);
       setSnackbarMessage('Error submitting quiz. Please try again.');
       setShowSnackbar(true);
+    }
+  };
+
+  // Function to copy code
+  const copyCodeToClipboard = async (code: string) => {
+    try {
+      await Clipboard.setStringAsync(code);
+      setSnackbarMessage('Code copied to clipboard!');
+      setShowSnackbar(true);
+    } catch (error) {
+      console.error('Error copying code:', error);
+      setSnackbarMessage('Failed to copy code');
+      setShowSnackbar(true);
+    }
+  };
+
+  // Function to handle AI chat
+  const handleAiChatSend = async () => {
+    if (!aiMessage.trim() || aiLoading) return;
+    
+    // Add user message to chat
+    const userMsg = { type: 'user' as const, content: aiMessage.trim() };
+    setAiMessages(prev => [...prev, userMsg]);
+    setAiMessage('');
+    setAiLoading(true);
+    
+    try {
+      // Get lesson content as context for the AI in a more structured way
+      let lessonContext = '';
+      
+      // Add lesson title and metadata for better context
+      if (lesson) {
+        lessonContext += `Lesson Title: ${lesson.title}\n`;
+        lessonContext += `Topic: ${lesson.topic}\n`;
+        
+        // Process content based on its type
+        if (typeof lesson.content === 'string') {
+          lessonContext += `Content: ${lesson.content}\n`;
+        } else if (Array.isArray(lesson.content)) {
+          // Process structured content
+          lesson.content.forEach((section, i) => {
+            if (section.title) {
+              lessonContext += `Section ${i+1}: ${section.title}\n`;
+            }
+            
+            if (section.type === 'text') {
+              lessonContext += `${section.content}\n\n`;
+            } else if (section.type === 'code') {
+              lessonContext += `Code Example (${section.codeLanguage || 'code'}):\n${section.content}\n\n`;
+            }
+          });
+        }
+      }
+      
+      console.log('Sending AI context:', lessonContext.substring(0, 100) + '...');
+      
+      // Send to AI API with improved lesson context
+      const response = await api.post('/mentor/chat', {
+        message: `Based on this lesson: "${lesson?.title}", ${aiMessage.trim()}`,
+        context: lessonContext
+      });
+      
+      if (response.data && response.data.response) {
+        // Add AI response to chat
+        setAiMessages(prev => [...prev, { 
+          type: 'ai', 
+          content: response.data.response 
+        }]);
+        
+        // Scroll to bottom
+        setTimeout(() => {
+          aiChatScrollViewRef.current?.scrollToEnd({ animated: true });
+        }, 100);
+      } else {
+        throw new Error('Invalid response format');
+      }
+    } catch (error) {
+      console.error('Error getting AI response:', error);
+      setAiMessages(prev => [...prev, { 
+        type: 'ai', 
+        content: 'Sorry, I encountered an issue. Please try again or ask a different question.' 
+      }]);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  // Function to handle pull-to-refresh
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      // Force refresh from server
+      const data = await getLessonById(lessonId, true);
+      setLesson(data);
+      setProgress(data.progress || 0);
+      setIsCompleted(data.completed || data.progress >= 1);
+      
+      // Refresh course data as well
+      if (data.courseId) {
+        await getCourseWithLessons(data.courseId, true);
+      }
+    } catch (err) {
+      console.error('Error refreshing lesson:', err);
+      setSnackbarMessage('Failed to refresh. Pull down to try again.');
+      setShowSnackbar(true);
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -605,157 +730,240 @@ export default function LessonDetailScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView style={styles.scrollView}>
-        {/* Title Section with enhanced styling */}
-        <Card style={styles.titleCard}>
-          <Card.Content>
+      <ScrollView 
+        style={styles.scrollView} 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#6366F1']}
+          />
+        }
+      >
+        {/* Simple Title Section */}
+        <View style={styles.titleSection}>
             <Text style={styles.lessonTitle}>{lesson.title}</Text>
+          <View style={styles.metaRow}>
             <Chip 
-              style={[styles.topicChip, {backgroundColor: '#6366F120'}]} 
-              textStyle={[styles.topicChipText, {color: '#6366F1'}]}
-              icon={() => <Ionicons name="school-outline" size={16} color="#6366F1" />}
+              style={styles.topicChip} 
+              textStyle={styles.topicChipText}
             >
               {lesson.topic}
             </Chip>
-            
-            <View style={styles.metaInfo}>
-              <View style={styles.metaItem}>
-                <Ionicons name="time-outline" size={18} color="#6366F1" />
-                <Text style={styles.metaText}>{lesson.duration} mins</Text>
+            <Text style={styles.durationText}>
+              <Ionicons name="time-outline" size={14} color="#6B7280" /> {lesson.duration} mins
+            </Text>
+            <Text style={styles.xpText}>
+              <Ionicons name="star-outline" size={14} color="#F59E0B" /> {Math.floor((lesson.duration || 5) * 2)} XP
+            </Text>
+          </View>
               </View>
               
-              {/* Add XP reward indicator */}
-              <View style={styles.metaItem}>
-                <Ionicons name="star-outline" size={18} color="#F59E0B" />
-                <Text style={[styles.metaText, {color: '#F59E0B'}]}>
-                  {Math.floor((lesson.duration || 5) * 2)} XP reward
-                </Text>
+        {/* Lesson Progress */}
+        <View style={styles.progressContainer}>
+          <View style={styles.progressLabelRow}>
+            <Text style={styles.progressLabel}>Progress</Text>
+            <Text style={styles.progressPercent}>{Math.round(progress * 100)}%</Text>
               </View>
+          <ProgressBar 
+            progress={progress} 
+            color="#6366F1" 
+            style={styles.progressBar}
+          />
             </View>
-          </Card.Content>
-        </Card>
         
-        {/* Content Sections with enhanced styling */}
+        {/* Divider */}
+        <View style={styles.divider} />
+        
+        {/* Content */}
+        <View style={styles.contentContainer}>
         {typeof lesson.content === 'string' ? (
-          <Card style={styles.contentCard}>
-            <Card.Content>
-              <Text style={styles.sectionText}>{lesson.content}</Text>
-            </Card.Content>
-          </Card>
+            <Text style={styles.contentText}>{lesson.content}</Text>
         ) : (
           lesson?.content && lesson.content.map((section, index) => (
-            <Card key={index} style={styles.contentCard}>
-              <Card.Content>
+              <View key={index} style={styles.sectionContainer}>
                 {section.title && (
-                  <View style={styles.sectionTitleContainer}>
-                    <LinearGradient
-                      colors={['#6366F1', '#818CF8']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
-                      style={styles.sectionTitleGradient}
-                    />
                     <Text style={styles.sectionTitle}>{section.title}</Text>
-                  </View>
                 )}
                 
                 {section.type === 'text' && (
-                  <Text style={styles.sectionText}>{section.content}</Text>
+                  <Text style={styles.contentText}>{section.content}</Text>
                 )}
                 
                 {section.type === 'code' && (
-                  <View style={styles.codeBlock}>
+                  <View style={styles.codeContainer}>
                     <View style={styles.codeHeader}>
-                      <Text style={styles.codeLanguage}>{section.codeLanguage || 'Code'}</Text>
+                      <View style={styles.windowButtons}>
+                        <View style={[styles.windowBtn, styles.closeBtn]} />
+                        <View style={[styles.windowBtn, styles.minimizeBtn]} />
+                        <View style={[styles.windowBtn, styles.maximizeBtn]} />
+                      </View>
+                      <View style={styles.codeActions}>
+                        <Text style={styles.codeLang}>{section.codeLanguage || 'Code'}</Text>
+                        <TouchableOpacity 
+                          style={styles.copyCodeButton}
+                          onPress={() => copyCodeToClipboard(section.content)}
+                        >
+                          <Ionicons name="copy-outline" size={14} color="#6B7280" />
+                          <Text style={styles.copyCodeText}>Copy</Text>
+                        </TouchableOpacity>
+                      </View>
                     </View>
-                    <ScrollView horizontal>
-                      <Text style={styles.codeContent}>
-                        {section.content}
-                      </Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      <Text style={styles.code}>{section.content}</Text>
                     </ScrollView>
                   </View>
                 )}
                 
                 {section.type === 'image' && (
                   <View style={styles.imageContainer}>
-                    <LinearGradient
-                      colors={['#F3F4F6', '#E5E7EB']}
-                      style={styles.imagePlaceholderGradient}
-                    >
-                      <Ionicons name="image-outline" size={48} color="#6B7280" />
-                      <Text style={styles.imagePlaceholder}>Image placeholder</Text>
-                    </LinearGradient>
+                    <View style={styles.imageBox}>
+                      <Ionicons name="image-outline" size={32} color="#9CA3AF" />
+                    </View>
                     {section.title && <Text style={styles.imageCaption}>{section.title}</Text>}
                   </View>
                 )}
-              </Card.Content>
-            </Card>
-          ))
-        )}
-        
-        {/* Navigation buttons with enhanced styling */}
-        <View style={styles.navigationButtonsContainer}>
-          <Button 
-            mode="outlined" 
-            style={styles.navButton}
-            contentStyle={styles.navButtonContent}
-            labelStyle={styles.navButtonLabel}
-            icon="arrow-left"
-            onPress={handleBackNavigation}
-          >
-            Back
-          </Button>
-          
-          {progress < 1 ? (
-            <Button 
-              mode="contained" 
-              style={[styles.navButton, {backgroundColor: '#6366F1'}]}
-              contentStyle={styles.navButtonContent}
-              labelStyle={styles.navButtonLabel}
-              icon="check"
-              onPress={markAsComplete}
-            >
-              Mark Complete
-            </Button>
-          ) : isLastLesson ? (
-            quizStatus?.passed ? (
-              <Button 
-                mode="contained" 
-                style={[styles.navButton, {backgroundColor: '#22C55E'}]}
-                contentStyle={styles.navButtonContent}
-                labelStyle={styles.navButtonLabel}
-                icon="check-circle"
-                disabled
-              >
-                Quiz Passed
-              </Button>
-            ) : (
-              <Button 
-                mode="contained" 
-                style={[styles.navButton, {backgroundColor: '#22C55E'}]}
-                contentStyle={styles.navButtonContent}
-                labelStyle={styles.navButtonLabel}
-                icon="school"
-                onPress={handleStartQuiz}
-              >
-                Take Quiz
-              </Button>
-            )
-          ) : (
-            <Button 
-              mode="contained" 
-              style={[styles.navButton, {backgroundColor: '#22C55E'}]}
-              contentStyle={styles.navButtonContent}
-              labelStyle={styles.navButtonLabel}
-              icon="arrow-right"
-              onPress={continueToNextLesson}
-            >
-              Next Lesson
-            </Button>
+              </View>
+            ))
           )}
         </View>
         
-        <View style={styles.bottomPadding} />
+        {/* Bottom Action Buttons */}
+        <View style={styles.actionContainer}>
+          {progress < 1 ? (
+            <View style={styles.buttonCenter}>
+            <Button 
+              mode="contained" 
+                style={styles.actionButton}
+                labelStyle={styles.buttonLabel}
+              onPress={markAsComplete}
+                icon="check"
+            >
+              Mark Complete
+            </Button>
+            </View>
+          ) : isLastLesson ? (
+            quizStatus?.passed ? (
+              <View style={styles.buttonCenter}>
+              <Button 
+                mode="contained" 
+                  style={[styles.actionButton, { backgroundColor: '#22C55E' }]}
+                  labelStyle={styles.buttonLabel}
+                disabled
+                  icon="check-circle"
+              >
+                Quiz Passed
+              </Button>
+              </View>
+            ) : (
+              <View style={styles.buttonCenter}>
+              <Button 
+                mode="contained" 
+                  style={[styles.actionButton, { backgroundColor: '#22C55E' }]}
+                  labelStyle={styles.buttonLabel}
+                onPress={handleStartQuiz}
+                  icon="school"
+              >
+                Take Quiz
+              </Button>
+              </View>
+            )
+          ) : (
+            <View style={styles.buttonCenter}>
+            <Button 
+              mode="contained" 
+                style={[styles.actionButton, { backgroundColor: '#22C55E' }]}
+                labelStyle={styles.buttonLabel}
+              onPress={continueToNextLesson}
+                icon="arrow-right"
+            >
+              Next Lesson
+            </Button>
+            </View>
+          )}
+        </View>
       </ScrollView>
+      
+      {/* AI Chat Floating Action Button */}
+      <FAB
+        icon="robot"
+        color="#FFFFFF"
+        style={styles.aiChatButton}
+        onPress={() => setShowAiChat(true)}
+      />
+      
+      {/* AI Chat Modal */}
+      <Modal
+        visible={showAiChat}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowAiChat(false)}
+      >
+        <View style={styles.aiChatModal}>
+          <View style={styles.aiChatContainer}>
+            <View style={styles.aiChatHeader}>
+              <Text style={styles.aiChatTitle}>Lesson Assistant</Text>
+              <IconButton
+                icon="close"
+                size={20}
+                onPress={() => setShowAiChat(false)}
+                style={styles.aiChatCloseButton}
+              />
+            </View>
+            
+            <ScrollView 
+              ref={aiChatScrollViewRef}
+              style={styles.aiChatMessages}
+              contentContainerStyle={{ paddingBottom: 20 }}
+              onContentSizeChange={() => aiChatScrollViewRef.current?.scrollToEnd({ animated: true })}
+            >
+              {aiMessages.map((msg, index) => (
+                <View 
+                  key={index} 
+                  style={[
+                    styles.messageWrapper,
+                    msg.type === 'user' ? styles.userMessage : styles.aiMessage
+                  ]}
+                >
+                  {msg.type === 'ai' && (
+                    <View style={styles.aiAssistantAvatar}>
+                      <Ionicons name="school" size={16} color="#FFFFFF" />
+                    </View>
+                  )}
+                  <Text style={msg.type === 'user' ? styles.userMessageText : styles.aiMessageText}>
+                    {msg.content}
+                  </Text>
+                </View>
+              ))}
+              
+              {aiLoading && (
+                <View style={styles.aiLoadingIndicator}>
+                  <ActivityIndicator size="small" color="#6366F1" />
+                </View>
+              )}
+            </ScrollView>
+            
+            <View style={styles.aiChatInputContainer}>
+              <TextInput
+                style={styles.aiChatInput}
+                value={aiMessage}
+                onChangeText={setAiMessage}
+                placeholder="Ask about this lesson..."
+                multiline
+                right={
+                  <TextInput.Icon
+                    icon="send"
+                    onPress={handleAiChatSend}
+                    disabled={!aiMessage.trim() || aiLoading}
+                    color={aiMessage.trim() && !aiLoading ? '#6366F1' : '#9CA3AF'}
+                  />
+                }
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
       
       {/* Snackbar for notifications */}
       <Snackbar
@@ -769,18 +977,35 @@ export default function LessonDetailScreen() {
 
       {/* Confirmation dialog */}
       <Portal>
-        <Dialog visible={confirmDialogVisible} onDismiss={() => setConfirmDialogVisible(false)}>
-          <Dialog.Title>Confirm Lesson Completion</Dialog.Title>
-          <Dialog.Content>
-            <Paragraph>
-              Have you understood all the concepts in this lesson? 
-              Marking it as complete will earn you {Math.floor((lesson?.duration || 5) * 2)} XP.
-            </Paragraph>
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setConfirmDialogVisible(false)}>Cancel</Button>
-            <Button onPress={confirmCompletion}>Yes, I've learned it</Button>
-          </Dialog.Actions>
+        <Dialog 
+          visible={confirmDialogVisible} 
+          onDismiss={() => setConfirmDialogVisible(false)}
+          style={styles.confirmDialog}
+        >
+          <View style={styles.confirmContent}>
+            <Ionicons name="checkmark-circle" size={40} color="#6366F1" style={styles.confirmIcon} />
+            <Text style={styles.confirmTitle}>Complete Lesson?</Text>
+            <Text style={styles.confirmXP}>+{Math.floor((lesson?.duration || 5) * 2)} XP</Text>
+            
+            <View style={styles.confirmButtons}>
+              <Button 
+                mode="outlined" 
+                onPress={() => setConfirmDialogVisible(false)}
+                style={styles.cancelButton}
+                labelStyle={styles.cancelButtonLabel}
+              >
+                Cancel
+              </Button>
+              <Button 
+                mode="contained" 
+                onPress={confirmCompletion}
+                style={styles.completeButton}
+                labelStyle={styles.completeButtonLabel}
+              >
+                Complete
+              </Button>
+            </View>
+          </View>
         </Dialog>
       </Portal>
 
@@ -791,32 +1016,24 @@ export default function LessonDetailScreen() {
           onDismiss={() => setShowXpCelebration(false)}
           style={styles.xpDialog}
         >
-          <View style={styles.xpContainer}>
-            <LinearGradient
-              colors={['#F59E0B', '#FBBF24', '#FCD34D']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.xpGradient}
-            >
-              <RNAnimated.View 
-                style={[
-                  styles.xpBadge,
-                  { transform: [{ scale: xpScaleAnim }] }
-                ]}
-              >
+          <View style={styles.completionContainer}>
+            <View style={styles.xpBadge}>
                 <Text style={styles.xpAmount}>+{earnedXp}</Text>
                 <Text style={styles.xpLabel}>XP</Text>
-              </RNAnimated.View>
-              
-              <RNAnimated.Text 
-                style={[
-                  styles.xpText,
-                  { opacity: textFadeAnim }
-                ]}
-              >
+            </View>
+            
+            <Text style={styles.completionTitle}>
                 Lesson Complete!
-              </RNAnimated.Text>
-            </LinearGradient>
+            </Text>
+            
+            <Button
+              mode="contained"
+              onPress={() => setShowXpCelebration(false)}
+              style={styles.completionButton}
+              labelStyle={styles.completionButtonLabel}
+            >
+              Continue
+            </Button>
           </View>
         </Dialog>
       </Portal>
@@ -827,10 +1044,7 @@ export default function LessonDetailScreen() {
 const styles = StyleSheet.create<Styles>({
   container: {
     flex: 1,
-  },
-  headerGradient: {
-    paddingTop: 8,
-    paddingBottom: 8,
+    backgroundColor: '#FFFFFF',
   },
   header: {
     flexDirection: 'row',
@@ -847,143 +1061,226 @@ const styles = StyleSheet.create<Styles>({
   scrollView: {
     flex: 1,
   },
-  titleCard: {
-    margin: 16,
-    marginTop: 16,
-    borderRadius: 16,
-    elevation: 2,
-    backgroundColor: '#FFFFFF',
+  
+  // Title section
+  titleSection: {
+    padding: 24,
+    paddingBottom: 16,
   },
   lessonTitle: {
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: 'bold',
-    color: '#111827',
-    marginBottom: 12,
+    color: '#1F2937',
+    marginBottom: 16,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 12,
   },
   topicChip: {
-    backgroundColor: '#6366F1',
-    alignSelf: 'flex-start',
-    marginBottom: 16,
-    borderRadius: 20,
+    backgroundColor: '#EEF2FF',
   },
   topicChipText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
-  metaInfo: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  metaItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  metaText: {
-    marginLeft: 4,
     color: '#6366F1',
+  },
+  durationText: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  xpText: {
+    fontSize: 14,
+    color: '#F59E0B',
     fontWeight: '500',
   },
-  contentCard: {
-    margin: 16,
-    marginTop: 0,
-    borderRadius: 16,
-    elevation: 2,
-    backgroundColor: '#FFFFFF',
-    overflow: 'hidden',
+  
+  // Progress section
+  progressContainer: {
+    paddingHorizontal: 24,
+    marginBottom: 24,
   },
-  sectionTitleContainer: {
+  progressLabelRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
+    justifyContent: 'space-between',
+    marginBottom: 8,
   },
-  sectionTitleGradient: {
-    width: 4,
-    height: 24,
-    marginRight: 8,
-    borderRadius: 2,
+  progressLabel: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  progressPercent: {
+    fontSize: 14,
+    color: '#6366F1',
+    fontWeight: '600',
+  },
+  progressBar: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#E5E7EB',
+  },
+  
+  // Divider
+  divider: {
+    height: 1,
+    backgroundColor: '#E5E7EB',
+    marginHorizontal: 24,
+    marginBottom: 24,
+  },
+  
+  // Content
+  contentContainer: {
+    paddingHorizontal: 24,
+  },
+  sectionContainer: {
+    marginBottom: 24,
   },
   sectionTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
-    color: '#111827',
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 12,
   },
-  sectionText: {
+  contentText: {
     fontSize: 16,
     lineHeight: 24,
-    color: '#374151',
+    color: '#4B5563',
   },
-  codeBlock: {
-    marginVertical: 12,
-    borderRadius: 12,
+  
+  // Code blocks
+  codeContainer: {
+    marginVertical: 16,
+    borderRadius: 8,
     overflow: 'hidden',
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   codeHeader: {
-    backgroundColor: '#1F2937',
-    padding: 12,
-    paddingHorizontal: 16,
-  },
-  codeLanguage: {
-    color: '#D1D5DB',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  codeContent: {
-    fontFamily: 'monospace',
-    backgroundColor: '#282c34',
-    color: '#abb2bf',
-    padding: 16,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  imageContainer: {
-    marginVertical: 12,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  imagePlaceholderGradient: {
-    padding: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  imagePlaceholder: {
-    marginTop: 8,
-    color: '#6B7280',
-    fontSize: 14,
-  },
-  imageCaption: {
-    textAlign: 'center',
-    padding: 8,
-    color: '#6B7280',
-    fontSize: 14,
-    fontStyle: 'italic',
-  },
-  navigationButtonsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  windowButtons: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  windowBtn: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  closeBtn: {
+    backgroundColor: '#FF605C',
+  },
+  minimizeBtn: {
+    backgroundColor: '#FFBD44',
+  },
+  maximizeBtn: {
+    backgroundColor: '#00CA4E',
+  },
+  codeLang: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  code: {
+    fontFamily: 'monospace',
+    fontSize: 14,
+    color: '#FFFFFF',
+    backgroundColor: '#1F2937',
+    padding: 16,
+    minWidth: '100%',
+  },
+  
+  // Image
+  imageContainer: {
+    marginVertical: 16,
+  },
+  imageBox: {
+    height: 160,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageCaption: {
     marginTop: 8,
+    textAlign: 'center',
+    fontSize: 14,
+    color: '#6B7280',
+    fontStyle: 'italic',
   },
-  navButton: {
-    borderRadius: 12,
-    minWidth: 120,
+  
+  // Action buttons
+  actionContainer: {
+    padding: 24,
+    paddingBottom: 48,
   },
-  navButtonContent: {
+  actionButton: {
+    backgroundColor: '#6366F1',
+    borderRadius: 8,
     height: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    width: '100%',
   },
-  navButtonLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
+  
+  // Other components
   snackbar: {
     backgroundColor: '#1F2937',
     borderRadius: 8,
   },
-  bottomPadding: {
+  xpDialog: {
+    backgroundColor: 'transparent',
+    elevation: 0,
+  },
+  completionContainer: {
+    backgroundColor: '#6366F1',
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+  },
+  xpBadge: {
+    width: 80,
     height: 80,
+    borderRadius: 40,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  xpAmount: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#6366F1',
+  },
+  xpLabel: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#6366F1',
+    marginTop: -4,
+  },
+  completionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 20,
+  },
+  completionButton: {
+    flex: 1,
+    borderRadius: 8,
+    backgroundColor: '#6366F1',
+  },
+  completeButtonLabel: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
   loadingContainer: {
     flex: 1,
@@ -1008,55 +1305,8 @@ const styles = StyleSheet.create<Styles>({
     textAlign: 'center',
     marginBottom: 16,
   },
-  xpDialog: {
-    backgroundColor: 'transparent',
-    elevation: 0,
-  },
-  xpContainer: {
-    borderRadius: 16,
-    overflow: 'hidden',
-    margin: 24,
-  },
-  xpGradient: {
-    width: '100%',
-    padding: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 16,
-  },
-  xpBadge: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 24,
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-  },
-  xpAmount: {
-    fontSize: 36,
-    fontWeight: 'bold',
-    color: '#F59E0B',
-  },
-  xpLabel: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#F59E0B',
-    marginTop: -4,
-  },
-  xpText: {
-    fontSize: 24,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    textShadowColor: 'rgba(0, 0, 0, 0.2)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
-  },
+  
+  // Locked state
   lockedContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -1092,4 +1342,200 @@ const styles = StyleSheet.create<Styles>({
     borderRadius: 12,
     backgroundColor: '#6366F1',
   },
-} as const); 
+  buttonCenter: {
+    alignItems: 'center',
+    width: '100%',
+  },
+  buttonLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  confirmDialog: {
+    borderRadius: 16,
+    backgroundColor: 'transparent',
+  },
+  confirmContent: {
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 24,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    borderRadius: 16,
+  },
+  confirmIcon: {
+    marginBottom: 16,
+  },
+  confirmTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 8,
+  },
+  confirmXP: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#F59E0B',
+    marginBottom: 24,
+  },
+  confirmButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    paddingHorizontal: 8,
+  },
+  cancelButton: {
+    minWidth: '45%',
+    borderColor: '#E5E7EB',
+  },
+  cancelButtonLabel: {
+    color: '#6B7280',
+  },
+  copyCodeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    gap: 4,
+  },
+  copyCodeText: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  codeActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  aiChatButton: {
+    position: 'absolute',
+    bottom: 16,
+    right: 16,
+    backgroundColor: '#6366F1',
+    borderRadius: 28,
+  },
+  aiChatModal: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  aiChatContainer: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    marginTop: 80,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    overflow: 'hidden',
+  },
+  aiChatHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+    backgroundColor: '#6366F1',
+  },
+  aiChatTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  aiChatCloseButton: {
+    margin: 0,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  aiChatMessages: {
+    flex: 1,
+    padding: 16,
+  },
+  messageWrapper: {
+    marginBottom: 12,
+    maxWidth: '80%',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  aiMessage: {
+    alignSelf: 'flex-start',
+  },
+  userMessage: {
+    alignSelf: 'flex-end',
+    justifyContent: 'flex-end',
+  },
+  aiMessageText: {
+    backgroundColor: '#F3F4F6',
+    padding: 12,
+    borderRadius: 16,
+    borderTopLeftRadius: 4,
+    color: '#1F2937',
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  userMessageText: {
+    backgroundColor: '#6366F1',
+    padding: 12,
+    borderRadius: 16,
+    borderTopRightRadius: 4,
+    color: '#FFFFFF',
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  aiAssistantAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#6366F1',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+    marginTop: 4,
+  },
+  aiChatInputContainer: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  aiChatInput: {
+    backgroundColor: '#FFFFFF',
+  },
+  aiChatSendButton: {
+    margin: 0,
+  },
+  aiLoadingIndicator: {
+    padding: 8,
+    alignSelf: 'flex-start',
+  },
+  questionText: {
+    fontSize: 18,
+    fontWeight: '500',
+    color: '#1F2937',
+    marginBottom: 16,
+  },
+  optionsContainer: {
+    marginTop: 16,
+  },
+  optionItem: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 12,
+  },
+  selectedOption: {
+    borderColor: '#6366F1',
+    backgroundColor: '#EEF2FF',
+  },
+  optionText: {
+    fontSize: 16,
+    color: '#4B5563',
+  },
+  completeButton: {
+    backgroundColor: '#6366F1',
+    minWidth: '45%',
+  },
+  completionButtonLabel: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+}); 

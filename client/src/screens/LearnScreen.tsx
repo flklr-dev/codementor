@@ -23,6 +23,9 @@ import api from '../services/api';
 import { getUserProgress } from '../services/progressService';
 import LevelUpModal from '../components/LevelUpModal';
 import { updateUserData } from '../store/slices/authSlice';
+import AppHeader from '../components/AppHeader';
+import XPProgressBar from '../components/XPProgressBar';
+import cacheService from '../services/cacheService';
 
 interface Course {
   _id: string;
@@ -44,13 +47,19 @@ type RootStackParamList = {
 
 export default function LearnScreen() {
   const theme = useTheme();
-  const [searchQuery, setSearchQuery] = useState('');
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [beginnerCourses, setBeginnerCourses] = useState<Course[]>([]);
   const [recommendedCourses, setRecommendedCourses] = useState<Course[]>([]);
+  const [currentLesson, setCurrentLesson] = useState<{
+    lessonId: string;
+    title: string;
+    courseTitle: string;
+    progress: number;
+    timeLeft: string;
+  } | null>(null);
   
   const { user } = useAppSelector(state => state.auth);
   const dispatch = useAppDispatch();
@@ -68,13 +77,6 @@ export default function LearnScreen() {
     nextLevelXp: 1000,
     streak: user?.streak || 0,
   });
-
-  const lastLesson = {
-    title: "JavaScript Functions",
-    progress: 0.35,
-    timeLeft: "15 min left",
-    module: "JavaScript Basics",
-  };
 
   const categories = [
     { id: 1, name: "Frontend", icon: "logo-html5", color: "#E34F26" },
@@ -115,6 +117,131 @@ export default function LearnScreen() {
   const [xpGained, setXpGained] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Function to fetch user's current lesson - with improved fallback mechanisms
+  const fetchCurrentLesson = useCallback(async () => {
+    if (!user || !user._id) return;
+    
+    try {
+      console.log('Fetching current lesson for user:', user._id);
+      
+      // Try dashboard endpoint first
+      const dashboardResponse = await api.get(`/dashboard?t=${new Date().getTime()}`);
+      console.log('Dashboard response:', JSON.stringify(dashboardResponse.data));
+      
+      if (dashboardResponse.data && dashboardResponse.data.nextLesson) {
+        const lesson = dashboardResponse.data.nextLesson;
+        console.log('Found current lesson from dashboard:', JSON.stringify(lesson));
+        
+        // Calculate time left based on duration and progress
+        const durationMatch = lesson.duration?.match(/(\d+)/);
+        const durationMins = durationMatch ? parseInt(durationMatch[1]) : 30;
+        const timeLeftMins = Math.round(durationMins * (1 - (lesson.progress || 0)));
+        
+        const currentLessonData = {
+          lessonId: lesson._id || lesson.id || '',
+          title: lesson.title || 'Continue Learning',
+          courseTitle: lesson.topic || 'Current Course',
+          progress: lesson.progress || 0,
+          timeLeft: `${timeLeftMins} min left`
+        };
+        
+        console.log('Setting current lesson state from dashboard:', JSON.stringify(currentLessonData));
+        setCurrentLesson(currentLessonData);
+        return;
+      }
+      
+      // If dashboard didn't work, try user progress directly
+      console.log('No lesson from dashboard, trying user progress');
+      try {
+        const progressResponse = await api.get(`/users/${user._id}/progress?t=${new Date().getTime()}`);
+        console.log('Progress response:', JSON.stringify(progressResponse.data));
+        
+        // Check if there are completed lessons - if so, get the most recent one
+        if (progressResponse.data && 
+            progressResponse.data.completedLessons && 
+            progressResponse.data.completedLessons.length > 0) {
+          
+          // Sort by completion date (most recent first)
+          const sortedLessons = [...progressResponse.data.completedLessons]
+            .sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
+          
+          const latestLesson = sortedLessons[0];
+          console.log('Latest completed lesson:', JSON.stringify(latestLesson));
+          
+          if (latestLesson && latestLesson.lessonId) {
+            // Fetch the course that contains this lesson
+            try {
+              const lessonResponse = await api.get(`/lessons/${latestLesson.lessonId._id || latestLesson.lessonId}`);
+              const lesson = lessonResponse.data;
+              console.log('Lesson details:', JSON.stringify(lesson));
+              
+              if (lesson && lesson.courseId) {
+                const courseResponse = await api.get(`/courses/${lesson.courseId}`);
+                const course = courseResponse.data;
+                console.log('Course details:', JSON.stringify(course));
+                
+                // Find the next lesson in the course
+                if (course && course.lessons && course.lessons.length > 0) {
+                  const currentLessonIndex = course.lessons.findIndex(
+                    (l: any) => l._id === (latestLesson.lessonId._id || latestLesson.lessonId)
+                  );
+                  
+                  // If there's a next lesson, use that
+                  if (currentLessonIndex !== -1 && currentLessonIndex < course.lessons.length - 1) {
+                    const nextLessonId = course.lessons[currentLessonIndex + 1];
+                    const nextLessonResponse = await api.get(`/lessons/${nextLessonId}`);
+                    const nextLesson = nextLessonResponse.data;
+                    
+                    setCurrentLesson({
+                      lessonId: nextLesson._id,
+                      title: nextLesson.title || 'Next Lesson',
+                      courseTitle: course.title || 'Continue Course',
+                      progress: 0,
+                      timeLeft: `${nextLesson.duration || 30} min`
+                    });
+                    console.log('Set next lesson in course');
+                    return;
+                  } 
+                  // If that was the last lesson, suggest another course
+                  else if (currentLessonIndex === course.lessons.length - 1) {
+                    // Course completed, find a new one
+                    console.log('Course completed, finding new one');
+                    createMockLesson();
+                    return;
+                  }
+                }
+              }
+            } catch (err) {
+              console.error('Error getting lesson/course details:', err);
+            }
+          }
+        }
+        
+        // If we get here, fall back to a mock lesson
+        console.log('Falling back to mock lesson');
+        createMockLesson();
+      } catch (err) {
+        console.error('Error fetching user progress:', err);
+        createMockLesson();
+      }
+    } catch (error) {
+      console.error('Error in fetchCurrentLesson:', error);
+      createMockLesson();
+    }
+  }, [user]);
+
+  // Helper function to create a mock lesson
+  const createMockLesson = useCallback(() => {
+    console.log('Creating mock lesson');
+    setCurrentLesson({
+      lessonId: '',
+      title: 'Start Learning',
+      courseTitle: 'JavaScript Fundamentals',
+      progress: 0,
+      timeLeft: 'New course'
+    });
+  }, []);
+
   const refreshUserData = useCallback(async () => {
     if (!user || !user._id) return;
     
@@ -133,34 +260,62 @@ export default function LearnScreen() {
           streak: progressData.streak || prevData.streak,
         }));
       }
+      
+      // Also fetch current lesson
+      await fetchCurrentLesson();
     } catch (error) {
       console.error('Error refreshing user progress:', error);
     } finally {
       setRefreshing(false);
     }
-  }, [user]);
+  }, [user, fetchCurrentLesson]);
 
   // Add a function to force UI update
   const forceRefresh = async () => {
     try {
-      // Force refresh from database
-      const response = await api.get(`/auth/me?t=${new Date().getTime()}`);
-      if (response.data) {
-        // Update Redux store
+      // Check if cached data is available and not stale
+      const cachedUserData = await cacheService.getCachedUserData();
+      
+      // Only fetch from server if cache is stale or refreshing
+      if (!cachedUserData || refreshing) {
+        // Force refresh from database
+        const response = await api.get(`/auth/me?t=${new Date().getTime()}`);
+        if (response.data) {
+          // Cache the fresh data
+          await cacheService.cacheUserData(response.data);
+          
+          // Update Redux store
+          dispatch({ 
+            type: 'auth/updateUserData/fulfilled', 
+            payload: response.data 
+          });
+          
+          // Also update local state for immediate UI effect
+          setUserXpData({
+            level: response.data.level || 1,
+            xp: response.data.xp || 0,
+            nextLevelXp: response.data.level * 1000 || 1000,
+            streak: response.data.streak || 0,
+          });
+          
+          console.log('User data refreshed from server');
+        }
+      } else {
+        // Use cached data
         dispatch({ 
           type: 'auth/updateUserData/fulfilled', 
-          payload: response.data 
+          payload: cachedUserData 
         });
         
-        // Also update local state for immediate UI effect
+        // Update local state with cached data
         setUserXpData({
-          level: response.data.level || 1,
-          xp: response.data.xp || 0,
-          nextLevelXp: response.data.level * 1000 || 1000,
-          streak: response.data.streak || 0,
+          level: cachedUserData.level || 1,
+          xp: cachedUserData.xp || 0,
+          nextLevelXp: cachedUserData.level * 1000 || 1000,
+          streak: cachedUserData.streak || 0,
         });
         
-        console.log('Forced refresh with data:', response.data);
+        console.log('User data loaded from cache');
       }
     } catch (error) {
       console.error('Force refresh failed:', error);
@@ -173,10 +328,10 @@ export default function LearnScreen() {
       if (user?._id) {
         // Use the new force refresh function
         forceRefresh();
-        // Also refresh progress data
+        // Also refresh progress data and current lesson
         refreshUserData();
       }
-    }, [user?._id])
+    }, [user?._id, refreshUserData])
   );
 
   useEffect(() => {
@@ -199,11 +354,10 @@ export default function LearnScreen() {
         } else {
           recommendedData = await getCoursesByDifficulty('Advanced');
         }
-        setRecommendedCourses(recommendedData.slice(0, 3));
-        
-      } catch (err) {
-        console.error('Error fetching courses:', err);
-        setError('Failed to load courses. Please try again.');
+        setRecommendedCourses(recommendedData);
+      } catch (error) {
+        console.error('Error fetching courses:', error);
+        setError('Failed to fetch courses');
       } finally {
         setLoading(false);
       }
@@ -212,75 +366,33 @@ export default function LearnScreen() {
     fetchCourses();
   }, [userXpData.level]);
 
-  // Filter courses based on search query
-  const filteredCourses: Course[] = courses.filter(course => 
-    course.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    course.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    course.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
-
-  // Get recommended courses based on user's level
-  const recommendedCoursesFiltered: Course[] = filteredCourses.filter(course => {
-    if (userXpData.level <= 2) return course.difficulty === 'Beginner';
-    if (userXpData.level <= 5) return course.difficulty === 'Intermediate';
-    return course.difficulty === 'Advanced';
-  }).slice(0, 3);
-
-  const onSearch = (query: string) => {
-    setSearchQuery(query);
-  };
-
-  const renderCourseCard = (course: Course) => (
-    <Card
-      key={course._id}
-      style={styles.courseCard}
-      onPress={() => navigation.navigate('CourseDetail', { courseId: course._id })}
-    >
-      <LinearGradient
-        colors={['#4F46E5', '#7C3AED']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={styles.courseCardHeader}
-      >
-        <IconButton 
-          icon="code-tags" 
-          iconColor="#FFFFFF" 
-          size={28}
-          style={styles.courseIcon}
-        />
-      </LinearGradient>
-      <Card.Content style={styles.courseCardContent}>
-        <Text style={styles.courseTitle}>{course.title}</Text>
-        <Text style={styles.courseDescription} numberOfLines={2}>
-          {course.description}
-        </Text>
-        <View style={styles.courseMeta}>
-          <Chip style={styles.courseChip}>{course.difficulty}</Chip>
-          <Text style={styles.courseDuration}>
-            {course.lessons?.length || 0} lessons
-          </Text>
-        </View>
-      </Card.Content>
-    </Card>
-  );
-
+  // Only keep the necessary functions and remove any references to search
   function getCourseIcon(title: string | undefined): string {
-    if (!title) return "book-outline";
+    if (!title) return "code";
+    title = title.toLowerCase();
     
-    const titleLower = title.toLowerCase();
-    if (titleLower.includes('javascript')) return "language-javascript";
-    if (titleLower.includes('react')) return "react";
-    if (titleLower.includes('node')) return "nodejs";
-    if (titleLower.includes('python')) return "language-python";
-    return "code-braces";
+    if (title.includes("javascript") || title.includes("js")) return "logo-javascript";
+    if (title.includes("python")) return "logo-python";
+    if (title.includes("react")) return "logo-react";
+    if (title.includes("node")) return "logo-nodejs";
+    if (title.includes("html")) return "logo-html5";
+    if (title.includes("css")) return "logo-css3";
+    
+    return "code-slash";
   }
 
   function getCourseColor(difficulty: string | undefined): string {
-    switch(difficulty?.toLowerCase()) {
-      case 'beginner': return '#22C55E';
-      case 'intermediate': return '#3B82F6';
-      case 'advanced': return '#8B5CF6';
-      default: return '#6366F1';
+    if (!difficulty) return "#6366F1";
+    
+    switch (difficulty.toLowerCase()) {
+      case "beginner":
+        return "#22C55E";
+      case "intermediate":
+        return "#3B82F6";
+      case "advanced":
+        return "#8B5CF6";
+      default:
+        return "#6366F1";
     }
   }
 
@@ -308,7 +420,9 @@ export default function LearnScreen() {
   }, [user]);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
+      <AppHeader />
+      
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
@@ -326,113 +440,11 @@ export default function LearnScreen() {
           }
         >
           {/* Hero Section */}
-          <LinearGradient
-            colors={['#6366F1', '#818CF8']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.heroSection}>
-            <View style={styles.header}>
-              <View style={styles.headerLeft}>
-                {user?.avatar ? (
-                  <Avatar.Image
-                    size={40}
-                    source={{ uri: user.avatar }}
-                    style={styles.avatar}
-                  />
-                ) : (
-                  <Avatar.Text
-                    size={40}
-                    label={avatarText}
-                    style={[styles.avatar, { backgroundColor: '#FFFFFF' }]}
-                    labelStyle={[{ 
-                      color: '#6366F1',
-                      fontSize: 20,
-                      fontWeight: 'bold',
-                      textAlign: 'center',
-                      includeFontPadding: false,
-                      textAlignVertical: 'center',
-                      lineHeight: 40,
-                    }]}
-                  />
-                )}
-                <View style={styles.userInfo}>
-                  <Text style={styles.userName}>{userName}</Text>
-                  <View style={styles.statsRow}>
-                    <Text style={styles.levelText}>Level {userXpData.level}</Text>
-                    <View style={styles.streakContainer}>
-                      <View style={styles.streakCircle}>
-                        <Text style={styles.streakText}>{userXpData.streak}</Text>
-                        <Ionicons name="flame" size={16} color="#FCD34D" />
-                      </View>
-                    </View>
-                  </View>
-                </View>
-              </View>
-              <IconButton
-                icon="bell-outline"
-                iconColor="#FFFFFF"
-                size={24}
-                style={styles.notificationButton}
-              />
-            </View>
-
-            {/* Progress Section - Styled like AchievementsScreen */}
-            <View style={styles.progressInfo}>
-              <View style={styles.progressContainer}>
-                <View style={styles.progressHeader}>
-                  <Text style={styles.progressLabel}>Experience Points</Text>
-                  <Text style={styles.xpText}>
-                    {userXpData.xp}/{userXpData.nextLevelXp} XP
-                  </Text>
-                </View>
-                <View style={styles.progressBarContainer}>
-                  <View 
-                    style={[
-                      styles.progressBarFill,
-                      { width: `${(userXpData.xp / userXpData.nextLevelXp) * 100}%` }
-                    ]} 
-                  />
-                </View>
-                <Text style={styles.progressSubtext}>
-                  {userXpData.nextLevelXp - userXpData.xp} XP until next level
-                </Text>
-              </View>
-            </View>
-          </LinearGradient>
-
-          {/* Search Section */}
-          <View style={styles.section}>
-            <Searchbar
-              placeholder="Search topics or exercises..."
-              value={searchQuery}
-              onChangeText={onSearch}
-              style={styles.searchBar}
+          <View style={styles.heroSection}>
+            <XPProgressBar 
+              xp={userXpData.xp} 
+              nextLevelXp={userXpData.nextLevelXp}
             />
-          </View>
-
-          {/* Continue Learning Section */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Continue Learning</Text>
-            <Card style={styles.continueCard}>
-              <Card.Content>
-                <Text style={styles.moduleText}>{lastLesson.module}</Text>
-                <Text style={styles.lessonTitle}>{lastLesson.title}</Text>
-                <View style={styles.lessonMeta}>
-                  <Text style={styles.timeLeft}>{lastLesson.timeLeft}</Text>
-                  <ProgressBar
-                    progress={lastLesson.progress}
-                    color={theme.colors.primary}
-                    style={styles.lessonProgress}
-                  />
-                </View>
-                <Button
-                  mode="contained"
-                  style={styles.continueButton}
-                  labelStyle={styles.buttonLabel}>
-                  Continue
-                </Button>
-              </Card.Content>
-            </Card>
           </View>
 
           {/* Categories Section */}
@@ -516,56 +528,105 @@ export default function LearnScreen() {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Recommended for You</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recommendedContainer}>
-              {recommendedCoursesFiltered.map((course) => (
+              {recommendedCourses.map((course) => (
                 <Card
                   key={course._id}
                   style={styles.recommendedCard}
                   onPress={() => navigation.navigate('CourseDetail', { courseId: course._id })}
                 >
-                  <LinearGradient
-                    colors={[getCourseColor(course.difficulty), getCourseColor(course.difficulty) + '80']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.recommendedCardHeader}
-                  >
-                    <IconButton
-                      icon={getCourseIcon(course.title)}
-                      iconColor="#FFFFFF"
-                      size={30}
-                      style={styles.recommendedIcon}
-                    />
-                  </LinearGradient>
-                  <Card.Content style={styles.recommendedCardContent}>
-                    <Text style={styles.recommendedTitle} numberOfLines={1}>{course.title}</Text>
+                  <View style={styles.recommendedCardContent}>
+                    <View 
+                      style={[
+                        styles.recommendedIconContainer,
+                        { backgroundColor: `${getCourseColor(course.difficulty)}15` }
+                      ]}
+                    >
+                      <Ionicons 
+                        name={getCourseIcon(course.title) as any} 
+                        size={24} 
+                        color={getCourseColor(course.difficulty)} 
+                      />
+                    </View>
+                    <Text style={styles.recommendedTitle}>{course.title}</Text>
                     <Text style={styles.recommendedDescription} numberOfLines={2}>
                       {course.description}
                     </Text>
                     <View style={styles.recommendedMeta}>
                       <Chip 
-                        style={[styles.recommendedChip, {backgroundColor: getCourseColor(course.difficulty) + '20'}]}
-                        textStyle={{color: getCourseColor(course.difficulty), fontSize: 12, fontWeight: '600', lineHeight: 16}}
+                        style={[
+                          styles.recommendedChip,
+                          { backgroundColor: `${getCourseColor(course.difficulty)}15` }
+                        ]}
+                        textStyle={{ 
+                          color: getCourseColor(course.difficulty),
+                          fontWeight: '500',
+                          fontSize: 12
+                        }}
                       >
                         {course.difficulty}
                       </Chip>
-                      <Text style={styles.recommendedDuration}>
+                      <Text style={styles.recommendedLessons}>
                         {course.lessons?.length || 0} lessons
                       </Text>
                     </View>
-                  </Card.Content>
+                  </View>
                 </Card>
               ))}
             </ScrollView>
           </View>
 
-          {/* Popular Beginner Courses */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Popular for Beginners</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {/* Delete or comment out this line (which is likely around line 97-100)
-              const beginnerCourses = filteredCourses.filter(course => course.difficulty === 'Beginner');
-              */}
-            </ScrollView>
-          </View>
+          {/* Recent Courses - If we have beginner courses */}
+          {beginnerCourses.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Beginner Courses</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recommendedContainer}>
+                {beginnerCourses.slice(0, 5).map((course) => (
+                  <Card
+                    key={course._id}
+                    style={styles.recommendedCard}
+                    onPress={() => navigation.navigate('CourseDetail', { courseId: course._id })}
+                  >
+                    <View style={styles.recommendedCardContent}>
+                      <View 
+                        style={[
+                          styles.recommendedIconContainer,
+                          { backgroundColor: `${getCourseColor(course.difficulty)}15` }
+                        ]}
+                      >
+                        <Ionicons 
+                          name={getCourseIcon(course.title) as any} 
+                          size={24} 
+                          color={getCourseColor(course.difficulty)} 
+                        />
+                      </View>
+                      <Text style={styles.recommendedTitle}>{course.title}</Text>
+                      <Text style={styles.recommendedDescription} numberOfLines={2}>
+                        {course.description}
+                      </Text>
+                      <View style={styles.recommendedMeta}>
+                        <Chip 
+                          style={[
+                            styles.recommendedChip,
+                            { backgroundColor: `${getCourseColor(course.difficulty)}15` }
+                          ]}
+                          textStyle={{ 
+                            color: getCourseColor(course.difficulty),
+                            fontWeight: '500',
+                            fontSize: 12
+                          }}
+                        >
+                          {course.difficulty}
+                        </Chip>
+                        <Text style={styles.recommendedLessons}>
+                          {course.lessons?.length || 0} lessons
+                        </Text>
+                      </View>
+                    </View>
+                  </Card>
+                ))}
+              </ScrollView>
+            </View>
+          )}
 
           {/* Bottom padding for scroll */}
           <View style={styles.bottomPadding} />
@@ -600,7 +661,7 @@ export default function LearnScreen() {
         newLevel={userXpData.level}
         xpGained={xpGained}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -611,104 +672,12 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+    marginTop: 0,
   },
   heroSection: {
+    paddingTop: 16,
     paddingBottom: 24,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    paddingTop: 20,
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  avatar: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderWidth: 2,
-    borderColor: '#A78BFA',
-  },
-  userInfo: {
-    gap: 4,
-  },
-  userName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  statsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  levelText: {
-    color: '#E5E7EB',
-    fontSize: 13,
-  },
-  streakContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  streakCircle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: 20,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    gap: 4,
-  },
-  streakText: {
-    color: '#FCD34D',
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  notificationButton: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-  },
-  progressInfo: {
-    marginHorizontal: 16,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 16,
-    padding: 16,
-  },
-  progressContainer: {
-    gap: 12,
-  },
-  progressHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  progressLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  xpText: {
-    fontSize: 14,
-    color: '#E5E7EB',
-    fontWeight: '500',
-  },
-  progressBarContainer: {
-    height: 10,
-    backgroundColor: 'rgba(255,255,255,0.3)',
-    borderRadius: 5,
-    overflow: 'hidden',
-  },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: '#FCD34D',
-    borderRadius: 5,
-  },
-  progressSubtext: {
-    fontSize: 12,
-    color: '#E5E7EB',
-    textAlign: 'center',
+    backgroundColor: '#6366F1',
   },
   section: {
     marginTop: 24,
@@ -719,38 +688,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#1F2937',
     marginBottom: 16,
-  },
-  continueCard: {
-    borderRadius: 16,
-  },
-  moduleText: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginBottom: 4,
-  },
-  lessonTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1F2937',
-    marginBottom: 12,
-  },
-  lessonMeta: {
-    marginBottom: 16,
-  },
-  timeLeft: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginBottom: 8,
-  },
-  lessonProgress: {
-    height: 6,
-    borderRadius: 3,
-  },
-  continueButton: {
-    borderRadius: 12,
-  },
-  buttonLabel: {
-    fontSize: 16,
   },
   categoryGrid: {
     flexDirection: 'row',
@@ -780,53 +717,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1F2937',
     textAlign: 'center',
-  },
-  courseCard: {
-    width: 260,
-    marginLeft: 16,
-    marginBottom: 8,
-    borderRadius: 16,
-    overflow: 'hidden',
-    elevation: 1,
-  },
-  courseCardHeader: {
-    height: 80,
-    justifyContent: 'center',
-    alignItems: 'flex-start',
-    paddingHorizontal: 16,
-  },
-  courseIcon: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 12,
-  },
-  courseCardContent: {
-    paddingVertical: 16,
-  },
-  courseTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#111827',
-    marginBottom: 4,
-  },
-  courseDescription: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginBottom: 16,
-    height: 40,
-  },
-  courseMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  courseChip: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 12,
-    height: 24,
-  },
-  courseDuration: {
-    fontSize: 14,
-    color: '#6B7280',
   },
   difficultyGrid: {
     gap: 12,
@@ -876,15 +766,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
-  searchSection: {
-    marginTop: 16,
-    marginHorizontal: 16,
-  },
-  searchBar: {
-    elevation: 0,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 12,
-  },
   bottomPadding: {
     height: 32,
   },
@@ -910,16 +791,6 @@ const styles = StyleSheet.create({
     elevation: 2,
     marginLeft: 2,
     marginBottom: 4,
-  },
-  recommendedCardHeader: {
-    height: 90,
-    justifyContent: 'center',
-    alignItems: 'flex-start',
-    paddingHorizontal: 16,
-  },
-  recommendedIcon: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 12,
   },
   recommendedCardContent: {
     padding: 16,
@@ -950,8 +821,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     justifyContent: 'center',
   },
-  recommendedDuration: {
+  recommendedLessons: {
     fontSize: 12,
     color: '#6B7280',
+  },
+  recommendedIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 }); 

@@ -28,23 +28,34 @@ type RootStackParamList = {
   LessonList: { type: string; title: string; color: string; courseId: string };
 };
 
+interface Lesson {
+  _id: string;
+  title: string;
+  duration: string;
+  completed: boolean;
+  progress?: number;
+}
+
 interface Course {
   _id: string;
   title: string;
   description: string;
   difficulty: string;
-  lessons: any[];
+  lessons: Lesson[];
   tags: string[];
 }
+
+type RouteParams = {
+  courseId: string;
+  lessonCompleted?: boolean;
+  xpEarned?: number;
+};
 
 export default function CourseDetailScreen() {
   const theme = useTheme();
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
   const route = useRoute();
-  const { courseId, lessonCompleted } = route.params as { 
-    courseId: string;
-    lessonCompleted?: boolean;
-  };
+  const { courseId, lessonCompleted } = route.params as RouteParams;
   
   const [course, setCourse] = useState<Course | null>(null);
   const [loading, setLoading] = useState(true);
@@ -56,37 +67,37 @@ export default function CourseDetailScreen() {
   const [xpEarnedDialogVisible, setXpEarnedDialogVisible] = useState(false);
   const [xpEarned, setXpEarned] = useState(0);
 
-  useEffect(() => {
-    const fetchCourse = async () => {
-      try {
-        setLoading(true);
-        setError('');
-        const data = await getCourseWithLessons(courseId);
-        console.log('Fetched course data:', data);
-        setCourse(data);
+  const fetchCourse = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const data = await getCourseWithLessons(courseId);
+      console.log('Fetched course data:', data);
+      setCourse(data);
+      
+      // Calculate real progress based on completed lessons
+      if (data && data.lessons) {
+        const total = data.lessons.length;
+        const completed = data.lessons.filter((lesson: Lesson) => 
+          lesson.completed === true
+        ).length;
         
-        // Calculate real progress based on completed lessons
-        if (data && data.lessons) {
-          const total = data.lessons.length;
-          const completed = data.lessons.filter(lesson => 
-            lesson.completed === true
-          ).length;
-          
-          console.log(`Found ${completed} completed lessons out of ${total}`);
-          
-          setCompletedLessonsCount(completed);
-          setTotalLessons(total);
-          setProgress(total > 0 ? completed / total : 0);
-        }
+        console.log(`Found ${completed} completed lessons out of ${total}`);
         
-      } catch (err) {
-        console.error('Error fetching course:', err);
-        setError('Failed to load course details. Please check your connection and try again.');
-      } finally {
-        setLoading(false);
+        setCompletedLessonsCount(completed);
+        setTotalLessons(total);
+        setProgress(total > 0 ? completed / total : 0);
       }
-    };
+      
+    } catch (err) {
+      console.error('Error fetching course:', err);
+      setError('Failed to load course details. Please check your connection and try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchCourse();
     
     // Set up a listener to refresh data when the screen comes into focus
@@ -99,8 +110,8 @@ export default function CourseDetailScreen() {
   }, [courseId, navigation]);
 
   useEffect(() => {
-    if (lessonCompleted && route.params.xpEarned) {
-      setXpEarned(route.params.xpEarned);
+    if (lessonCompleted && route.params && 'xpEarned' in route.params) {
+      setXpEarned(route.params.xpEarned as number);
       setXpEarnedDialogVisible(true);
       fetchCourse(); // Refresh data
     }
@@ -179,7 +190,7 @@ export default function CourseDetailScreen() {
           <Card.Content style={styles.courseHeroContent}>
             <View style={styles.courseIconContainer}>
               <Ionicons 
-                name={getIconForCourse(course?.title || '')} 
+                name={getIconForCourse(course?.title || '') as any} 
                 size={32} 
                 color={getCourseIconColor(course?.title || '')} 
               />
@@ -246,6 +257,9 @@ export default function CourseDetailScreen() {
                   if (firstLesson) {
                     navigation.navigate('LessonDetail', { lessonId: firstLesson._id });
                   }
+                } else if (progress === 1) {
+                  // All lessons completed
+                  // Just show the button as completed, no navigation
                 } else {
                   // Continue Learning - go to first incomplete lesson
                   const firstIncompleteLesson = course?.lessons.find(lesson => !lesson.completed);
@@ -254,11 +268,15 @@ export default function CourseDetailScreen() {
                   }
                 }
               }}
-              style={styles.startButton}
+              style={[
+                styles.startButton,
+                progress === 1 ? { backgroundColor: '#22C55E' } : null
+              ]}
               contentStyle={{height: 48}}
               labelStyle={{fontSize: 16, fontWeight: 'bold'}}
+              disabled={progress === 1}
             >
-              {progress > 0 ? 'Continue Learning' : 'Start Learning'}
+              {progress === 0 ? 'Start Learning' : progress === 1 ? 'Completed' : 'Continue Learning'}
             </Button>
           </Card.Content>
         </Card>
@@ -272,8 +290,8 @@ export default function CourseDetailScreen() {
               key={lesson._id} 
               style={[
                 styles.lessonCard,
-                lesson.completed && styles.completedLessonCard,
-                lesson.progress && lesson.progress > 0 && lesson.progress < 1 && styles.inProgressLessonCard
+                lesson.completed ? styles.completedLessonCard : null,
+                lesson.progress && lesson.progress > 0 && lesson.progress < 1 ? styles.inProgressLessonCard : null
               ]}
               onPress={() => navigation.navigate('LessonDetail', { lessonId: lesson._id })}
             >
@@ -281,13 +299,13 @@ export default function CourseDetailScreen() {
                 <View style={styles.lessonHeader}>
                   <View style={[
                     styles.lessonNumberContainer,
-                    lesson.completed && styles.completedLessonNumberContainer,
-                    lesson.progress && lesson.progress > 0 && !lesson.completed && styles.inProgressLessonNumberContainer
+                    lesson.completed ? styles.completedLessonNumberContainer : null,
+                    lesson.progress && lesson.progress > 0 && !lesson.completed ? styles.inProgressLessonNumberContainer : null
                   ]}>
                     <Text style={[
                       styles.lessonNumber,
-                      lesson.completed && styles.completedLessonNumber,
-                      lesson.progress && lesson.progress > 0 && !lesson.completed && styles.inProgressLessonNumber
+                      lesson.completed ? styles.completedLessonNumber : null,
+                      lesson.progress && lesson.progress > 0 && !lesson.completed ? styles.inProgressLessonNumber : null
                     ]}>{index + 1}</Text>
                   </View>
                   <View style={styles.lessonInfo}>
@@ -303,7 +321,7 @@ export default function CourseDetailScreen() {
                         
                         <View style={styles.xpContainer}>
                           <Ionicons name="star-outline" size={16} color="#F59E0B" />
-                          <Text style={styles.xpText}>{Math.floor((lesson.duration || 5) * 2)} XP</Text>
+                          <Text style={styles.xpText}>{lesson.duration ? Math.floor(parseInt(lesson.duration) * 2) : 10} XP</Text>
                         </View>
                       </View>
                       

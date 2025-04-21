@@ -7,6 +7,60 @@ const UserProgress = require('../models/UserProgress');
 const User = require('../models/User');
 const { updateAchievements } = require('../utils/achievements');
 
+// Debug route to check quiz data
+router.get('/debug/:courseId', auth, async (req, res) => {
+  try {
+    const { courseId } = req.params;
+    
+    // Check if quiz exists
+    let quiz = await Quiz.findOne({ courseId });
+    
+    if (!quiz) {
+      // Create a sample quiz if none exists
+      quiz = new Quiz({
+        courseId,
+        questions: [
+          {
+            question: 'What is the main purpose of this course?',
+            options: [
+              'To learn programming basics',
+              'To master advanced concepts',
+              'To practice problem-solving',
+              'To understand software development'
+            ],
+            correctAnswer: 0
+          },
+          {
+            question: 'Which approach is best for learning?',
+            options: [
+              'Memorizing without understanding',
+              'Practice and application',
+              'Reading without coding',
+              'Watching without practicing'
+            ],
+            correctAnswer: 1
+          }
+        ],
+        xpReward: 100
+      });
+      
+      await quiz.save();
+      console.log('Created sample quiz for course:', courseId);
+    }
+    
+    res.json({
+      message: 'Quiz debug info',
+      quizExists: !!quiz,
+      quizId: quiz._id,
+      courseId: quiz.courseId,
+      questionCount: quiz.questions.length
+    });
+  } catch (error) {
+    console.error('Quiz debug error:', error);
+    res.status(500).json({ error: 'Debug route error' });
+  }
+});
+
 // Get quiz for a course
 router.get('/course/:courseId', auth, async (req, res) => {
   try {

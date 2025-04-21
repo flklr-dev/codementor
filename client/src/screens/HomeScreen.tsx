@@ -1,5 +1,5 @@
-import React from 'react';
-import { StyleSheet, View, ScrollView, ImageBackground } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { StyleSheet, View, ScrollView, RefreshControl } from 'react-native';
 import {
   Text,
   useTheme,
@@ -7,17 +7,49 @@ import {
   Avatar,
   Card,
   IconButton,
-  Searchbar,
   ProgressBar,
+  ActivityIndicator,
+  Surface,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { useAppSelector } from '../store/hooks';
+import { useAppSelector, useAppDispatch } from '../store/hooks';
+import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp, createStackNavigator } from '@react-navigation/stack';
+import { useFocusEffect } from '@react-navigation/native';
+import { TabNavigatorParamList } from '../navigation/AppNavigator';
+import api from '../services/api';
+import { updateUserData } from '../store/slices/authSlice';
+import AppHeader from '../components/AppHeader';
+import XPProgressBar from '../components/XPProgressBar';
+import cacheService from '../services/cacheService';
+
+// Define stats interface
+interface UserStats {
+  streak: number;
+  completedLessons: number;
+  level: number;
+  xp: number;
+  nextLevelXp: number;
+  quizAverage: number;
+  completedQuizzes: number;
+  todayLessons: number;
+  todayQuizzes: number;
+  recentActivities?: Array<{
+    type: string;
+    title: string;
+    timestamp: Date;
+    details?: string;
+  }>;
+}
 
 export default function HomeScreen() {
   const theme = useTheme();
-  const [searchQuery, setSearchQuery] = React.useState('');
+  const navigation = useNavigation<StackNavigationProp<TabNavigatorParamList>>();
+  const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const dispatch = useAppDispatch();
   
   // Get the user from auth state
   const { user } = useAppSelector(state => state.auth);
@@ -28,163 +60,342 @@ export default function HomeScreen() {
   // Use the user's name if available
   const userName = user?.name || 'Coder';
 
-  const userProgress = {
+  // Initialize user stats with default values from Redux
+  const [userStats, setUserStats] = useState<UserStats>({
     streak: user?.streak || 0,
-    todayMinutes: user?.todayMinutes || 0,
-    completedChallenges: user?.completedChallenges || 0,
-    level: user?.level || 1
+    completedLessons: 0,
+    level: user?.level || 1,
+    xp: user?.xp || 0,
+    nextLevelXp: user?.level ? user.level * 1000 : 1000,
+    quizAverage: 0,
+    completedQuizzes: 0,
+    todayLessons: 0,
+    todayQuizzes: 0
+  });
+
+  const getUserId = () => {
+    return user?.id || user?._id;
   };
 
-  const nextLesson = {
-    title: "Advanced JavaScript",
-    topic: "Async/Await",
-    duration: "25 mins",
-    progress: 0.35
-  };
-
-  const recommendedChallenges = [
-    {
-      id: 1,
-      title: "Build a REST API",
-      difficulty: "Intermediate",
-      xp: 150,
-      tags: ["Node.js", "Express"]
-    },
-    {
-      id: 2,
-      title: "React State Management",
-      difficulty: "Advanced",
-      xp: 200,
-      tags: ["React", "Redux"]
+  const forceRefresh = async () => {
+    try {
+      // Try to get data from cache first
+      const cachedUser = await cacheService.getCachedUserData();
+      
+      // If cache miss or explicitly forcing refresh
+      if (!cachedUser || refreshing) {
+        const response = await api.get(`/auth/me?t=${new Date().getTime()}`);
+        if (response.data) {
+          // Update cache with new data
+          await cacheService.cacheUserData(response.data);
+          // Update Redux store
+          dispatch(updateUserData(response.data));
+          console.log('User data refreshed from server');
+          return response.data;
+        }
+      } else {
+        // Use cached data
+        dispatch(updateUserData(cachedUser));
+        console.log('User data loaded from cache');
+        return cachedUser;
+      }
+      return null;
+    } catch (error) {
+      console.error('Force refresh failed:', error);
+      return null;
     }
-  ];
+  };
+
+  // Function to fetch user stats from the server
+  const fetchUserStats = async () => {
+    const userId = getUserId();
+    if (!userId) return;
+    
+    try {
+      setLoading(true);
+      
+      // Try to get from cache first unless we're explicitly refreshing
+      if (!refreshing) {
+        const cachedStats = await cacheService.getCachedUserProgress(userId);
+        if (cachedStats) {
+          console.log('Using cached user progress data');
+          setUserStats(cachedStats);
+          setLoading(false);
+          return;
+        }
+      }
+      
+      console.log('Fetching user progress data from server...');
+      
+      // Fetch user progress data
+      const timestamp = new Date().getTime();
+      const progressResponse = await api.get(`/progress/users/${userId}/progress?t=${timestamp}&force=true`);
+      
+      if (!progressResponse.data) {
+        console.error('Received empty response data');
+        setLoading(false);
+        return;
+      }
+      
+      // Check for today's activities
+      const today = new Date().setHours(0, 0, 0, 0);
+      
+      // Count today's completed lessons
+      const todayLessons = progressResponse.data.completedLessons?.filter(
+        (lesson: any) => new Date(lesson.completedAt).setHours(0, 0, 0, 0) === today
+      ).length || 0;
+      
+      // Count today's quizzes
+      const todayQuizzes = progressResponse.data.quizScores?.filter(
+        (quiz: any) => new Date(quiz.completedAt).setHours(0, 0, 0, 0) === today
+      ).length || 0;
+      
+      // Calculate quiz average
+      const quizScores = progressResponse.data.quizScores || [];
+      const completedQuizzes = quizScores.length;
+      const avgQuizScore = completedQuizzes > 0 
+        ? Math.round(quizScores.reduce((sum: number, quiz: any) => sum + quiz.score, 0) / completedQuizzes)
+        : 0;
+      
+      // Generate recent activities from actual user data
+      const recentActivities: Array<{
+        type: string;
+        title: string;
+        timestamp: Date;
+        details?: string;
+      }> = [];
+      
+      // Add recent lessons (last 3)
+      const recentLessons = [...(progressResponse.data.completedLessons || [])]
+        .sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime())
+        .slice(0, 3);
+      
+      recentLessons.forEach(lesson => {
+        recentActivities.push({
+          type: 'lesson',
+          title: `Completed ${lesson.title || 'a lesson'}`,
+          timestamp: new Date(lesson.completedAt),
+          details: lesson.category
+        });
+      });
+      
+      // Add recent quizzes (last 3)
+      const recentQuizzes = [...(progressResponse.data.quizScores || [])]
+        .sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime())
+        .slice(0, 3);
+      
+      recentQuizzes.forEach(quiz => {
+        recentActivities.push({
+          type: 'quiz',
+          title: `Completed quiz with ${quiz.score}% score`,
+          timestamp: new Date(quiz.completedAt),
+          details: quiz.quizId
+        });
+      });
+      
+      // Add recent achievements (last 3)
+      const earnedAchievements = progressResponse.data.achievements
+        ?.filter((a: any) => a.earned && a.earnedAt)
+        .sort((a: any, b: any) => new Date(b.earnedAt).getTime() - new Date(a.earnedAt).getTime())
+        .slice(0, 3) || [];
+      
+      earnedAchievements.forEach((achievement: any) => {
+        recentActivities.push({
+          type: 'achievement',
+          title: `Earned "${achievement.title}" achievement`,
+          timestamp: new Date(achievement.earnedAt),
+          details: achievement.description
+        });
+      });
+      
+      // Sort all activities by timestamp (newest first)
+      recentActivities.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+      
+      // Create final stats object
+      const stats = {
+        streak: progressResponse.data.streak || user?.streak || 0,
+        completedLessons: progressResponse.data.completedLessons?.length || 0,
+        level: progressResponse.data.level || user?.level || 1,
+        xp: progressResponse.data.xp || user?.xp || 0,
+        nextLevelXp: progressResponse.data.nextLevelXp || (user?.level ? user.level * 1000 : 1000),
+        quizAverage: avgQuizScore,
+        completedQuizzes: completedQuizzes,
+        todayLessons,
+        todayQuizzes,
+        recentActivities: recentActivities.slice(0, 5) // Keep only the 5 most recent activities
+      };
+      
+      // Update state with fetched data
+      setUserStats(stats);
+      
+      // Cache the progress data for future use
+      await cacheService.cacheUserProgress(userId, stats);
+      
+    } catch (error) {
+      console.error('Error fetching user stats:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Refresh data when the screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      const userId = getUserId();
+      if (userId) {
+        console.log('Screen focused, refreshing with user ID:', userId);
+        fetchUserStats();
+      } else {
+        console.log('Screen focused but no user ID available, trying to refresh user data');
+        forceRefresh().then(() => {
+          const refreshedId = getUserId();
+          if (refreshedId) {
+            console.log('User ID now available after refresh:', refreshedId);
+            fetchUserStats();
+          }
+        });
+      }
+      
+      return () => {
+        // Any cleanup code can go here
+      };
+    }, [])
+  );
+  
+  // Handle pull-to-refresh
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await forceRefresh();
+    await fetchUserStats();
+    setRefreshing(false);
+  };
+
+  if (loading && !userStats) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <Text style={styles.loadingText}>Loading dashboard...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.scrollView}>
-        {/* Hero Section */}
+    <View style={styles.container}>
+      <AppHeader />
+      
+      <ScrollView 
+        style={styles.scrollView}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[theme.colors.primary]}
+          />
+        }
+      >
+        {/* Hero Section with XP Progress */}
         <View style={styles.heroSection}>
-          <View style={styles.header}>
-            <View style={styles.headerLeft}>
-              {user?.avatar ? (
-                <Avatar.Image
-                  size={40}
-                  source={{ uri: user.avatar }}
-                  style={styles.avatar}
-                />
-              ) : (
-                <Avatar.Text
-                  size={40}
-                  label={avatarText}
-                  style={[styles.avatar, { backgroundColor: '#FFFFFF' }]}
-                  labelStyle={[styles.avatarLabel, { 
-                    color: '#6366F1',
-                    textAlign: 'center',
-                    textAlignVertical: 'center',
-                  }]}
-                />
-              )}
-              <View style={styles.userInfo}>
-                <Text style={styles.userName}>{userName}</Text>
-                <View style={styles.statsRow}>
-                  <Text style={styles.levelText}>Level {userProgress.level}</Text>
-                  <View style={styles.streakContainer}>
-                    <View style={styles.streakCircle}>
-                      <Text style={styles.streakText}>{userProgress.streak}</Text>
-                      <Ionicons name="flame" size={16} color="#FCD34D" />
-                    </View>
-                  </View>
-                </View>
-              </View>
-            </View>
-            <IconButton
-              icon="bell-outline"
-              iconColor="#FFFFFF"
-              size={24}
-              style={styles.notificationButton}
-            />
-          </View>
-        </View>
-
-        {/* Search Section */}
-        <View style={styles.searchSection}>
-          <Searchbar
-            placeholder="Search lessons or ask AI..."
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            style={styles.searchBar}
-            iconColor={theme.colors.primary}
+          <XPProgressBar 
+            xp={userStats.xp} 
+            nextLevelXp={userStats.nextLevelXp} 
           />
         </View>
 
         {/* Quick Stats */}
         <View style={styles.statsContainer}>
-          <Text style={styles.statsTitle}>Today's Overview</Text>
-          <View style={styles.statsGrid}>
-            <Card style={styles.statCard}>
-              <View style={styles.statContent}>
-                <View style={styles.statHeader}>
-                  <View style={[styles.statIconContainer, { backgroundColor: '#EEF2FF' }]}>
-                    <Ionicons name="time-outline" size={24} color="#6366F1" />
-                  </View>
-                  <Text style={styles.statLabel}>Time Spent</Text>
+          <Text style={styles.statsTitle}>Today's Activity</Text>
+          
+          <View style={styles.todayStatsGrid}>
+            <Card style={styles.todayCard}>
+              <Card.Content style={styles.todayCardContent}>
+                <View style={[styles.todayIconContainer, { backgroundColor: '#EEF2FF' }]}>
+                  <Ionicons name="book" size={20} color="#6366F1" />
                 </View>
-                <View style={styles.statValueContainer}>
-                  <Text style={styles.statNumber}>{userProgress.todayMinutes}</Text>
-                  <Text style={styles.statUnit}>minutes</Text>
+                <Text style={styles.todayValue}>{userStats.todayLessons}</Text>
+                <Text style={styles.todayLabel}>Lessons</Text>
+              </Card.Content>
+            </Card>
+            
+            <Card style={styles.todayCard}>
+              <Card.Content style={styles.todayCardContent}>
+                <View style={[styles.todayIconContainer, { backgroundColor: '#F0FDF4' }]}>
+                  <Ionicons name="school" size={20} color="#22C55E" />
                 </View>
-                <Text style={styles.statTrend}>+15min from yesterday</Text>
-              </View>
+                <Text style={styles.todayValue}>{userStats.todayQuizzes}</Text>
+                <Text style={styles.todayLabel}>Quizzes</Text>
+              </Card.Content>
             </Card>
 
-            <Card style={styles.statCard}>
-              <View style={styles.statContent}>
-                <View style={styles.statHeader}>
-                  <View style={[styles.statIconContainer, { backgroundColor: '#F0FDF4' }]}>
-                    <Ionicons name="trophy-outline" size={24} color="#22C55E" />
-                  </View>
-                  <Text style={styles.statLabel}>Challenges</Text>
+            <Card style={styles.todayCard}>
+              <Card.Content style={styles.todayCardContent}>
+                <View style={[styles.todayIconContainer, { backgroundColor: '#FEF3C7' }]}>
+                  <Ionicons name="flame" size={20} color="#F59E0B" />
                 </View>
-                <View style={styles.statValueContainer}>
-                  <Text style={styles.statNumber}>{userProgress.completedChallenges}</Text>
-                  <Text style={styles.statUnit}>completed</Text>
-                </View>
-                <Text style={styles.statTrend}>2 more to next level</Text>
-              </View>
+                <Text style={styles.todayValue}>{userStats.streak}</Text>
+                <Text style={styles.todayLabel}>Day Streak</Text>
+              </Card.Content>
             </Card>
           </View>
+          
+          <Text style={[styles.statsTitle, { marginTop: 24 }]}>My Progress</Text>
+          
+          <View style={styles.statsGrid}>
+            {/* Stats Cards */}
+            <View style={styles.statCard}>
+              <LinearGradient
+                colors={['#6366F1', '#818CF8']}
+                style={styles.statContent}>
+                <View style={styles.iconContainer}>
+                  <Ionicons name="book" size={24} color="#FFFFFF" />
+                </View>
+                <Text style={styles.statValue}>{userStats.completedLessons}</Text>
+                <Text style={styles.statLabel}>Lessons Learned</Text>
+              </LinearGradient>
+            </View>
+
+            <View style={styles.statCard}>
+              <LinearGradient
+                colors={['#0EA5E9', '#38BDF8']}
+                style={styles.statContent}>
+                <View style={styles.iconContainer}>
+                  <Ionicons name="trophy" size={24} color="#FFFFFF" />
+                </View>
+                <Text style={styles.statValue}>{userStats.quizAverage}%</Text>
+                <Text style={styles.statLabel}>Quiz Average</Text>
+              </LinearGradient>
+            </View>
+
+            <View style={styles.statCard}>
+              <LinearGradient
+                colors={['#8B5CF6', '#A78BFA']}
+                style={styles.statContent}>
+                <View style={styles.iconContainer}>
+                  <Ionicons name="checkmark-circle" size={24} color="#FFFFFF" />
+                </View>
+                <Text style={styles.statValue}>{userStats.completedQuizzes}</Text>
+                <Text style={styles.statLabel}>Quizzes Done</Text>
+              </LinearGradient>
         </View>
 
-        {/* Continue Learning */}
-        <View style={styles.sectionContainer}>
-          <Text style={styles.sectionTitle}>Continue Learning</Text>
-          <Card style={styles.continueCard}>
-            <Card.Content>
-              <View style={styles.lessonHeader}>
-                <View>
-                  <Text style={styles.lessonTitle}>{nextLesson.title}</Text>
-                  <Text style={styles.lessonTopic}>{nextLesson.topic}</Text>
+            <View style={styles.statCard}>
+              <LinearGradient
+                colors={['#F59E0B', '#FBBF24']}
+                style={styles.statContent}>
+                <View style={styles.iconContainer}>
+                  <Ionicons name="flame" size={24} color="#FFFFFF" />
                 </View>
-                <Text style={styles.lessonDuration}>{nextLesson.duration}</Text>
+                <Text style={styles.statValue}>{userStats.streak}</Text>
+                <Text style={styles.statLabel}>Day Streak</Text>
+              </LinearGradient>
+            </View>
               </View>
-              <ProgressBar
-                progress={nextLesson.progress}
-                color={theme.colors.primary}
-                style={styles.lessonProgress}
-              />
-              <Button
-                mode="contained"
-                style={styles.continueButton}
-                labelStyle={styles.buttonLabel}>
-                Continue
-              </Button>
-            </Card.Content>
-          </Card>
         </View>
 
         {/* AI Mentor Section */}
         <View style={styles.sectionContainer}>
-          <Card style={styles.aiMentorCard}>
+          <Card style={styles.aiMentorCard} onPress={() => navigation.navigate('Mentor')}>
             <LinearGradient
               colors={['#3B82F6', '#60A5FA']}
               start={{ x: 0, y: 0 }}
@@ -199,7 +410,8 @@ export default function HomeScreen() {
                 <Button
                   mode="contained"
                   style={styles.aiButton}
-                  labelStyle={styles.aiButtonLabel}>
+                  labelStyle={styles.aiButtonLabel}
+                  onPress={() => navigation.navigate('Mentor')}>
                   Ask Question
                 </Button>
               </View>
@@ -207,190 +419,196 @@ export default function HomeScreen() {
           </Card>
         </View>
 
-        {/* Recommended Challenges */}
+        {/* Recent Activity Section */}
+        {userStats.recentActivities && userStats.recentActivities.length > 0 && (
         <View style={styles.sectionContainer}>
-          <Text style={styles.sectionTitle}>Recommended Challenges</Text>
-          {recommendedChallenges.map((challenge) => (
-            <Card key={challenge.id} style={styles.challengeCard}>
-              <Card.Content>
-                <View style={styles.challengeHeader}>
-                  <View>
-                    <Text style={styles.challengeTitle}>{challenge.title}</Text>
-                    <View style={styles.tagContainer}>
-                      {challenge.tags.map((tag) => (
-                        <Text key={tag} style={styles.tag}>{tag}</Text>
-                      ))}
+            <Text style={styles.sectionTitle}>Recent Activity</Text>
+            <View style={styles.recentActivityContainer}>
+              {userStats.recentActivities.map((activity, index) => {
+                const activityDate = new Date(activity.timestamp);
+                const today = new Date();
+                const yesterday = new Date(today);
+                yesterday.setDate(yesterday.getDate() - 1);
+                
+                let dateText = '';
+                if (activityDate.setHours(0,0,0,0) === today.setHours(0,0,0,0)) {
+                  dateText = 'Today';
+                } else if (activityDate.setHours(0,0,0,0) === yesterday.setHours(0,0,0,0)) {
+                  dateText = 'Yesterday';
+                } else {
+                  dateText = activityDate.toLocaleDateString([], {month: 'short', day: 'numeric'});
+                }
+                
+                // Determine icon and color based on activity type
+                let iconName = 'checkmark-circle';
+                let bgColor = '#6366F1';
+                
+                if (activity.type === 'quiz') {
+                  iconName = 'school';
+                  bgColor = '#8B5CF6';
+                } else if (activity.type === 'achievement') {
+                  iconName = 'trophy';
+                  bgColor = '#F59E0B';
+                }
+                
+                return (
+                  <View key={index} style={styles.activityItemCard}>
+                    <View style={[styles.activityIndicator, { backgroundColor: bgColor }]} />
+                    <View style={styles.activityIconContainer}>
+                      <View style={[styles.activityIconBg, { backgroundColor: bgColor }]}>
+                        <Ionicons name={iconName as any} size={18} color="#FFFFFF" />
+                      </View>
+                    </View>
+                    <View style={styles.activityTextContainer}>
+                      <Text style={styles.activityTitle}>{activity.title}</Text>
+                      <Text style={styles.activityTimeText}>{dateText}</Text>
                     </View>
                   </View>
-                  <Text style={styles.xpText}>+{challenge.xp} XP</Text>
+                );
+              })}
                 </View>
-              </Card.Content>
-            </Card>
-          ))}
         </View>
+        )}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F9FAFB',
   },
   scrollView: {
     flex: 1,
+    marginTop: 0,
   },
-  heroSection: {
-    backgroundColor: '#6366F1',
-    width: '100%',
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    paddingTop: 20,
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  userInfo: {
-    gap: 4,
-  },
-  userName: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  levelText: {
-    color: '#E5E7EB',
-    fontSize: 13,
-  },
-  avatar: {
-    backgroundColor: '#FFFFFF',
+  loadingContainer: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  notificationButton: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#6B7280',
   },
-  searchSection: {
-    padding: 16,
-    marginTop: 12,
-  },
-  searchBar: {
-    borderRadius: 12,
-    elevation: 4,
+  heroSection: {
+    paddingTop: 16,
+    paddingBottom: 24,
+    backgroundColor: '#6366F1',
   },
   statsContainer: {
-    padding: 16,
+    marginTop: 32,
+    paddingHorizontal: 16,
+    marginBottom: 32,
   },
   statsTitle: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 24,
+    fontWeight: '700',
     color: '#1F2937',
-    marginBottom: 12,
+    marginBottom: 16,
+  },
+  todayStatsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  todayCard: {
+    width: '31%',
+    borderRadius: 16,
+    elevation: 2,
+  },
+  todayCardContent: {
+    alignItems: 'center',
+    padding: 16,
+  },
+  todayIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  todayValue: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  todayLabel: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 2,
   },
   statsGrid: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 12,
+    justifyContent: 'space-between',
   },
   statCard: {
-    flex: 1,
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
-    elevation: 2,
+    width: '47%',
+    aspectRatio: 1,
+    borderRadius: 24,
+    overflow: 'hidden',
+    marginBottom: 12,
   },
   statContent: {
+    flex: 1,
     padding: 16,
-    gap: 12,
+    justifyContent: 'space-between',
   },
-  statHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  statIconContainer: {
-    padding: 8,
+  iconContainer: {
+    width: 40,
+    height: 40,
     borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  statValue: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginTop: 'auto',
   },
   statLabel: {
-    fontSize: 14,
-    color: '#6B7280',
-    flex: 1,
+    fontSize: 16,
+    color: '#FFFFFF',
+    opacity: 0.9,
+    marginTop: 4,
   },
-  statValueContainer: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 4,
-  },
-  statNumber: {
-    fontSize: 28,
+  statNumberLight: {
+    fontSize: 32,
     fontWeight: 'bold',
-    color: '#1F2937',
+    color: '#FFFFFF',
   },
-  statUnit: {
+  statUnitLight: {
     fontSize: 14,
-    color: '#6B7280',
+    color: '#FFFFFF',
+    opacity: 0.9,
   },
-  statTrend: {
+  statSubLight: {
     fontSize: 12,
-    color: '#6B7280',
+    color: '#FFFFFF',
     opacity: 0.8,
+    marginTop: 'auto',
   },
   sectionContainer: {
     padding: 16,
+    marginBottom: 16,
   },
   sectionTitle: {
     fontSize: 20,
     fontWeight: '600',
-    marginBottom: 12,
-    color: '#1F2937',
-  },
-  continueCard: {
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
-  },
-  lessonHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-  },
-  lessonTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1F2937',
-  },
-  lessonTopic: {
-    color: '#6B7280',
-    marginTop: 4,
-  },
-  lessonDuration: {
-    color: '#6B7280',
-    backgroundColor: '#F3F4F6',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  lessonProgress: {
-    height: 6,
-    borderRadius: 3,
     marginBottom: 16,
-  },
-  continueButton: {
-    borderRadius: 12,
-  },
-  buttonLabel: {
-    fontSize: 16,
-    paddingVertical: 4,
+    color: '#1F2937',
   },
   aiMentorCard: {
     overflow: 'hidden',
     borderRadius: 16,
+    elevation: 4,
   },
   aiGradient: {
     padding: 24,
@@ -417,68 +635,53 @@ const styles = StyleSheet.create({
     color: '#3B82F6',
     fontSize: 16,
   },
-  challengeCard: {
-    marginBottom: 12,
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
-  },
-  challengeHeader: {
+  // Recent Activity Styles
+  activityItemCard: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    marginBottom: 8,
   },
-  challengeTitle: {
+  activityIndicator: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 12,
+  },
+  activityIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#EEF2FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  activityIconBg: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#6366F1',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  activityTextContainer: {
+    flex: 1,
+  },
+  activityTitle: {
     fontSize: 16,
     fontWeight: '600',
     color: '#1F2937',
-    marginBottom: 8,
+    marginBottom: 4,
   },
-  tagContainer: {
-    flexDirection: 'row',
-    gap: 8,
+  activityTimeText: {
+    fontSize: 14,
+    color: '#6B7280',
   },
-  tag: {
-    backgroundColor: '#EEF2FF',
-    color: '#6366F1',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    fontSize: 12,
-  },
-  xpText: {
-    color: '#059669',
-    fontWeight: '600',
-  },
-  statsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  recentActivityContainer: {
     gap: 12,
-  },
-  streakContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  streakCircle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: 20,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    gap: 4,
-  },
-  streakText: {
-    color: '#FCD34D',
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  avatarLabel: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#6366F1',
-    textAlign: 'center',
-    includeFontPadding: false,
-    textAlignVertical: 'center',
-    lineHeight: 40,
   },
 });

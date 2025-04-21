@@ -18,11 +18,17 @@ import {
   Surface,
   Avatar,
   Snackbar,
+  Button,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
+import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { TabNavigatorParamList } from '../navigation/AppNavigator';
 import api from '../services/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import cacheService from '../services/cacheService';
 
 interface Message {
   id: string;
@@ -36,18 +42,27 @@ interface Message {
   error?: string;
 }
 
+interface ChatSession {
+  id: string;
+  title: string;
+  lastMessage: string;
+  timestamp: Date;
+  messages: Message[];
+}
+
 interface CopyState {
   [key: string]: boolean;
 }
 
 export default function AIMentorScreen() {
   const theme = useTheme();
+  const navigation = useNavigation<StackNavigationProp<TabNavigatorParamList>>();
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
       type: 'ai',
-      content: "Hi! I'm your AI coding mentor. I can help you with:\n• Code explanations\n• Debugging\n• Best practices\n• Learning concepts\n\nWhat would you like to learn about?",
+      content: "I can assist you with:\n\n• Code explanations and concepts\n• Debugging and troubleshooting\n• Best practices and design patterns\n• Learning paths and resources\n• Project architecture and implementation\n\nWhat would you like to learn about today?",
       timestamp: new Date(),
     },
   ]);
@@ -55,8 +70,118 @@ export default function AIMentorScreen() {
   const [showSnackbar, setShowSnackbar] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [copyStates, setCopyStates] = useState<CopyState>({});
+  const [currentSessionId, setCurrentSessionId] = useState<string>(Date.now().toString());
+  const [chatHistory, setChatHistory] = useState<ChatSession[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
   const inputRef = useRef<RNTextInput>(null);
+
+  // Load chat history on component mount
+  React.useEffect(() => {
+    loadChatHistory();
+  }, []);
+
+  // Save current chat to history when messages change
+  React.useEffect(() => {
+    if (messages.length > 1) { // Only save if there's user interaction
+      saveCurrentSession();
+    }
+  }, [messages]);
+
+  // Load chat history from cache
+  const loadChatHistory = async () => {
+    try {
+      const cachedHistory = await cacheService.getCachedData<ChatSession[]>(
+        cacheService.CACHE_KEYS.CHAT_HISTORY, 
+        cacheService.CACHE_EXPIRY.CHAT_HISTORY
+      );
+      
+      if (cachedHistory) {
+        // Convert string dates back to Date objects
+        const parsedHistory = cachedHistory.map((session: any) => ({
+          ...session,
+          timestamp: new Date(session.timestamp),
+          messages: session.messages.map((msg: any) => ({
+            ...msg,
+            timestamp: new Date(msg.timestamp)
+          }))
+        }));
+        setChatHistory(parsedHistory);
+        console.log('Chat history loaded from cache');
+      }
+    } catch (error) {
+      console.error('Error loading chat history:', error);
+    }
+  };
+
+  // Save current chat session to history
+  const saveCurrentSession = async () => {
+    try {
+      // Create a title from the first user message or default
+      const firstUserMessage = messages.find(msg => msg.type === 'user');
+      const title = firstUserMessage 
+        ? firstUserMessage.content.substring(0, 30) + (firstUserMessage.content.length > 30 ? '...' : '') 
+        : 'New conversation';
+      
+      // Create session object
+      const currentSession: ChatSession = {
+        id: currentSessionId,
+        title,
+        lastMessage: messages[messages.length - 1].content.substring(0, 50) + 
+          (messages[messages.length - 1].content.length > 50 ? '...' : ''),
+        timestamp: new Date(),
+        messages: messages
+      };
+      
+      // Update history, keeping only the 5 most recent chats
+      const updatedHistory = [
+        currentSession,
+        ...chatHistory.filter(session => session.id !== currentSessionId)
+      ].slice(0, 5);
+      
+      setChatHistory(updatedHistory);
+      
+      // Cache the updated history
+      await cacheService.cacheData(
+        cacheService.CACHE_KEYS.CHAT_HISTORY, 
+        updatedHistory, 
+        cacheService.CACHE_EXPIRY.CHAT_HISTORY
+      );
+      
+      console.log('Chat session saved to cache');
+    } catch (error) {
+      console.error('Error saving chat session:', error);
+    }
+  };
+
+  // Start a new chat session
+  const startNewChat = () => {
+    setCurrentSessionId(Date.now().toString());
+    setMessages([
+      {
+        id: '1',
+        type: 'ai',
+        content: "I can assist you with:\n\n• Code explanations and concepts\n• Debugging and troubleshooting\n• Best practices and design patterns\n• Learning paths and resources\n• Project architecture and implementation\n\nWhat would you like to learn about today?",
+        timestamp: new Date(),
+      },
+    ]);
+    setShowHistory(false);
+  };
+
+  // Load a saved chat session
+  const loadChatSession = (sessionId: string) => {
+    const session = chatHistory.find(s => s.id === sessionId);
+    if (session) {
+      setCurrentSessionId(sessionId);
+      setMessages(session.messages);
+      setShowHistory(false);
+      
+      // Schedule scrolling to the end after the component re-renders
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: false });
+      }, 100);
+    }
+  };
 
   // Function to extract code blocks from AI response
   const parseResponse = (response: string): { text: string; codeBlock?: { language: string; code: string }; error?: string } => {
@@ -65,12 +190,15 @@ export default function AIMentorScreen() {
       const cleanResponse = response.replace(/You are an expert coding mentor.*?Response:/s, '').trim();
       
       if (!cleanResponse) {
-        return { text: 'Sorry, I received an empty response. Please try again.' };
+        return { text: 'I apologize, but I received an empty response. Please try again with a more specific question.' };
       }
 
+      // Remove any standalone language names that might appear in the text
+      const cleanedResponse = cleanResponse.replace(/\b(javascript|typescript|python|java|c\+\+|cpp|c#|csharp|ruby|php|swift|kotlin|go|rust|html|css|sql)\b/g, '');
+      
       // Extract code blocks with improved regex
       const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/g;
-      const matches = [...cleanResponse.matchAll(codeBlockRegex)];
+      const matches = [...cleanedResponse.matchAll(codeBlockRegex)];
       
       if (matches.length > 0) {
         // Use the first code block
@@ -78,43 +206,50 @@ export default function AIMentorScreen() {
         
         // Get the requested language from the user's message
         const userMessage = messages[messages.length - 1]?.content.toLowerCase() || '';
-        let requestedLanguage = 'python'; // default to python
+        let requestedLanguage = ''; // Don't default to javascript
         
         // Check for language in user's message
         if (userMessage.includes('python')) requestedLanguage = 'python';
-        else if (userMessage.includes('javascript')) requestedLanguage = 'javascript';
+        else if (userMessage.includes('javascript') || userMessage.includes('js')) requestedLanguage = 'javascript';
         else if (userMessage.includes('java')) requestedLanguage = 'java';
-        else if (userMessage.includes('c++')) requestedLanguage = 'cpp';
-        else if (userMessage.includes('c#')) requestedLanguage = 'csharp';
+        else if (userMessage.includes('c++') || userMessage.includes('cpp')) requestedLanguage = 'cpp';
+        else if (userMessage.includes('c#') || userMessage.includes('csharp')) requestedLanguage = 'csharp';
         else if (userMessage.includes('ruby')) requestedLanguage = 'ruby';
         else if (userMessage.includes('php')) requestedLanguage = 'php';
         else if (userMessage.includes('swift')) requestedLanguage = 'swift';
         else if (userMessage.includes('kotlin')) requestedLanguage = 'kotlin';
         else if (userMessage.includes('go')) requestedLanguage = 'go';
         else if (userMessage.includes('rust')) requestedLanguage = 'rust';
+        else if (userMessage.includes('typescript') || userMessage.includes('ts')) requestedLanguage = 'typescript';
+        else if (userMessage.includes('html')) requestedLanguage = 'html';
+        else if (userMessage.includes('css')) requestedLanguage = 'css';
+        else if (userMessage.includes('sql')) requestedLanguage = 'sql';
+        
+        // Use language from code block if provided, otherwise use detected or default
+        const codeLanguage = language || requestedLanguage || 'code';
         
         // Remove the code block from the text
-        const text = cleanResponse.replace(fullMatch, '').trim();
+        const text = cleanedResponse.replace(fullMatch, '').trim();
         
         // Validate code content
         if (!code.trim()) {
-          return { text: 'Sorry, the code block was empty. Please try again.' };
+          return { text: 'I apologize, but the code block was empty. Please try again with a more specific request.' };
         }
 
         return {
-          text: text || 'Here\'s the code:',
+          text: text || 'Here\'s the code example:',
           codeBlock: {
-            language: requestedLanguage,
+            language: codeLanguage,
             code: code.trim()
           }
         };
       }
       
-      return { text: cleanResponse };
+      return { text: cleanedResponse };
     } catch (error) {
       console.error('Error parsing response:', error);
       return { 
-        text: 'Sorry, I had trouble processing the response. Please try again.',
+        text: 'I apologize, but I had trouble processing the response. Please try again with a clearer question.',
         error: 'Response parsing failed'
       };
     }
@@ -163,7 +298,7 @@ export default function AIMentorScreen() {
       const errorMessage: Message = {
         id: Date.now().toString(),
         type: 'ai',
-        content: 'Sorry, I had trouble responding. Please try again.',
+        content: 'I apologize, but I encountered an issue while processing your request. Please try again or rephrase your question.',
         timestamp: new Date(),
         error: 'API request failed',
       };
@@ -175,47 +310,216 @@ export default function AIMentorScreen() {
     }
   };
 
-  const copyResponse = async (message: Message, messageId: string) => {
+  const copyCode = async (code: string, messageId: string) => {
     try {
-      if (!message.content && !message.codeBlock) {
-        throw new Error('No content to copy');
+      if (!code) {
+        throw new Error('No code to copy');
       }
 
-      // Combine text and code block if present
-      let fullResponse = message.content;
-      if (message.codeBlock) {
-        fullResponse += `\n\n\`\`\`${message.codeBlock.language}\n${message.codeBlock.code}\n\`\`\``;
-      }
-
-      await Clipboard.setStringAsync(fullResponse);
+      await Clipboard.setStringAsync(code);
       
       // Set copy state to true for this specific message
       setCopyStates(prev => ({
         ...prev,
-        [`response_${messageId}`]: true
+        [`code_${messageId}`]: true
       }));
 
       // Reset copy state after 2 seconds
       setTimeout(() => {
         setCopyStates(prev => ({
           ...prev,
-          [`response_${messageId}`]: false
+          [`code_${messageId}`]: false
         }));
       }, 2000);
 
-      setSnackbarMessage('Response copied to clipboard!');
+      setSnackbarMessage('Code copied to clipboard');
       setShowSnackbar(true);
     } catch (error) {
-      console.error('Error copying response:', error);
-      setSnackbarMessage('Failed to copy response');
+      console.error('Error copying code:', error);
+      setSnackbarMessage('Failed to copy code');
       setShowSnackbar(true);
     }
   };
 
+  // Function to format text with basic styling
+  const formatText = (text: string) => {
+    // Replace markdown-style bold with styled text
+    const boldText = text.replace(/\*\*(.*?)\*\*/g, '<bold>$1</bold>');
+    
+    // Replace markdown-style italic with styled text
+    const italicText = boldText.replace(/\*(.*?)\*/g, '<italic>$1</italic>');
+    
+    // Replace checkmarks
+    const checkmarkText = italicText.replace(/✅/g, '✓ ');
+    
+    // Replace magnifying glass
+    const magnifyingGlassText = checkmarkText.replace(/🔍/g, '🔍 ');
+    
+    // Replace warning
+    const warningText = magnifyingGlassText.replace(/⚠️/g, '⚠️ ');
+    
+    // Split by newlines to handle paragraphs
+    const paragraphs = warningText.split('\n\n');
+    
+    return (
+      <View>
+        {paragraphs.map((paragraph, index) => {
+          // Check if this is a bullet point
+          if (paragraph.trim().startsWith('•')) {
+            return (
+              <View key={index} style={styles.bulletPoint}>
+                <Text style={styles.bullet}>•</Text>
+                <Text style={styles.bulletText}>
+                  {formatStyledText(paragraph.substring(1).trim())}
+                </Text>
+              </View>
+            );
+          }
+          
+          return (
+            <Text key={index} style={styles.messageText}>
+              {formatStyledText(paragraph)}
+            </Text>
+          );
+        })}
+      </View>
+    );
+  };
+  
+  // Helper function to format text with bold and italic
+  const formatStyledText = (text: string) => {
+    const parts = [];
+    let lastIndex = 0;
+    
+    // Find all styled parts
+    const boldMatches = [...text.matchAll(/<bold>(.*?)<\/bold>/g)];
+    const italicMatches = [...text.matchAll(/<italic>(.*?)<\/italic>/g)];
+    
+    // Combine and sort all matches
+    const allMatches = [
+      ...boldMatches.map(match => ({ 
+        start: match.index, 
+        end: match.index + match[0].length, 
+        type: 'bold', 
+        content: match[1] 
+      })),
+      ...italicMatches.map(match => ({ 
+        start: match.index, 
+        end: match.index + match[0].length, 
+        type: 'italic', 
+        content: match[1] 
+      }))
+    ].sort((a, b) => a.start - b.start);
+    
+    // If no matches, return plain text
+    if (allMatches.length === 0) {
+      return <Text>{text}</Text>;
+    }
+    
+    // Build parts array
+    for (let i = 0; i < allMatches.length; i++) {
+      const match = allMatches[i];
+      
+      // Add text before match
+      if (match.start > lastIndex) {
+        parts.push(
+          <Text key={`text-${i}`}>
+            {text.substring(lastIndex, match.start)}
+          </Text>
+        );
+      }
+      
+      // Add styled text
+      if (match.type === 'bold') {
+        parts.push(
+          <Text key={`bold-${i}`} style={styles.boldText}>
+            {match.content}
+          </Text>
+        );
+      } else if (match.type === 'italic') {
+        parts.push(
+          <Text key={`italic-${i}`} style={styles.italicText}>
+            {match.content}
+          </Text>
+        );
+      }
+      
+      lastIndex = match.end;
+    }
+    
+    // Add remaining text
+    if (lastIndex < text.length) {
+      parts.push(
+        <Text key="text-end">
+          {text.substring(lastIndex)}
+        </Text>
+      );
+    }
+    
+    return <Text>{parts}</Text>;
+  };
+
+  // Render chat history overlay
+  const renderChatHistory = () => {
+    if (!showHistory) return null;
+    
+    return (
+      <View style={styles.historyOverlay}>
+        <View style={styles.historyContent}>
+          <View style={styles.historyHeader}>
+            <Text style={styles.historyTitle}>Recent Chats</Text>
+            <IconButton
+              icon="close"
+              size={20}
+              onPress={() => setShowHistory(false)}
+            />
+          </View>
+          
+          <ScrollView style={styles.historyList}>
+            {chatHistory.length === 0 ? (
+              <Text style={styles.emptyHistoryText}>No previous chats</Text>
+            ) : (
+              chatHistory.map(session => (
+                <TouchableOpacity
+                  key={session.id}
+                  style={styles.historyItem}
+                  onPress={() => loadChatSession(session.id)}
+                >
+                  <View style={styles.historyItemContent}>
+                    <Text style={styles.historyItemTitle} numberOfLines={1}>
+                      {session.title}
+                    </Text>
+                    <Text style={styles.historyItemDate}>
+                      {new Date(session.timestamp).toLocaleDateString()} • {new Date(session.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                    </Text>
+                  </View>
+                  <IconButton
+                    icon="chevron-right"
+                    size={20}
+                    iconColor="#9CA3AF"
+                  />
+                </TouchableOpacity>
+              ))
+            )}
+          </ScrollView>
+          
+          <Button
+            mode="contained"
+            icon="plus"
+            style={styles.newChatButton}
+            onPress={startNewChat}
+          >
+            New Chat
+          </Button>
+        </View>
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
-      {/* Hero Section */}
-      <View style={styles.heroSection}>
+      {/* Header Section */}
+      <View style={styles.headerSection}>
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <Avatar.Image
@@ -224,17 +528,26 @@ export default function AIMentorScreen() {
               style={styles.avatar}
             />
             <View style={styles.headerContent}>
-              <Text style={styles.headerTitle}>AI Mentor</Text>
-              <Text style={styles.headerSubtitle}>Powered by Claude</Text>
+              <Text style={styles.headerTitle}>Code Mentor</Text>
+              <Text style={styles.headerSubtitle}>Powered by AI</Text>
             </View>
           </View>
-          <IconButton
-            icon="refresh"
-            iconColor="#FFFFFF"
-            size={24}
-            style={styles.headerButton}
-            onPress={() => setMessages([messages[0]])}
-          />
+          <View style={styles.headerRight}>
+            <IconButton
+              icon="history"
+              iconColor="#FFFFFF"
+              size={24}
+              style={styles.headerButton}
+              onPress={() => setShowHistory(true)}
+            />
+            <IconButton
+              icon="plus-circle"
+              iconColor="#FFFFFF"
+              size={24}
+              style={styles.headerButton}
+              onPress={startNewChat}
+            />
+          </View>
         </View>
       </View>
 
@@ -257,13 +570,11 @@ export default function AIMentorScreen() {
               styles.messageBubble,
               msg.type === 'user' ? styles.userBubble : styles.aiBubble
             ]}>
-              <Text style={[
-                styles.messageText,
-                msg.type === 'user' ? styles.userMessageText : null,
-                msg.error ? styles.errorText : null
-              ]}>
-                {msg.content}
-              </Text>
+              {msg.type === 'user' ? (
+                <Text style={styles.userMessageText}>{msg.content}</Text>
+              ) : (
+                formatText(msg.content)
+              )}
               {msg.codeBlock && (
                 <Card style={styles.codeBlock}>
                   <Card.Content>
@@ -271,38 +582,31 @@ export default function AIMentorScreen() {
                       <Text style={styles.codeLanguage}>
                         {msg.codeBlock.language}
                       </Text>
-                      <IconButton
-                        icon={copyStates[msg.id] ? "check" : "content-copy"}
-                        size={16}
-                        iconColor={copyStates[msg.id] ? "#4CAF50" : "#9CA3AF"}
-                        onPress={() => copyResponse(msg, msg.id)}
-                      />
+                      <TouchableOpacity 
+                        style={styles.copyButton}
+                        onPress={() => copyCode(msg.codeBlock!.code, msg.id)}
+                      >
+                        <Ionicons 
+                          name={copyStates[`code_${msg.id}`] ? "checkmark-circle" : "copy-outline"} 
+                          size={16} 
+                          color={copyStates[`code_${msg.id}`] ? "#4CAF50" : "#9CA3AF"} 
+                        />
+                        <Text style={styles.copyButtonText}>
+                          {copyStates[`code_${msg.id}`] ? 'Copied' : 'Copy'}
+                        </Text>
+                      </TouchableOpacity>
                     </View>
                     <Text style={styles.codeText}>{msg.codeBlock.code}</Text>
                   </Card.Content>
                 </Card>
               )}
             </Surface>
-            {msg.type === 'ai' && (
-              <TouchableOpacity
-                style={styles.copyResponseButton}
-                onPress={() => copyResponse(msg, msg.id)}
-              >
-                <IconButton
-                  icon={copyStates[`response_${msg.id}`] ? "check" : "content-copy"}
-                  size={14}
-                  iconColor={copyStates[`response_${msg.id}`] ? "#4CAF50" : "#9CA3AF"}
-                />
-                <Text style={styles.copyResponseText}>
-                  {copyStates[`response_${msg.id}`] ? 'Copied' : 'Copy'}
-                </Text>
-              </TouchableOpacity>
-            )}
           </View>
         ))}
         {isLoading && (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="small" color="#6366F1" />
+            <Text style={styles.loadingText}>Processing your request...</Text>
           </View>
         )}
       </ScrollView>
@@ -317,7 +621,7 @@ export default function AIMentorScreen() {
           ref={inputRef}
           value={message}
           onChangeText={setMessage}
-          placeholder="Ask me anything about coding..."
+          placeholder="Ask me anything about programming..."
           style={styles.input}
           multiline
           disabled={isLoading}
@@ -331,6 +635,9 @@ export default function AIMentorScreen() {
           }
         />
       </KeyboardAvoidingView>
+
+      {/* Chat History Overlay */}
+      {renderChatHistory()}
 
       {/* Snackbar for notifications */}
       <Snackbar
@@ -350,7 +657,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F3F4F6',
   },
-  heroSection: {
+  headerSection: {
     backgroundColor: '#6366F1',
     paddingTop: 8,
   },
@@ -365,6 +672,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   avatar: {
     backgroundColor: '#EEF2FF',
@@ -385,6 +696,7 @@ const styles = StyleSheet.create({
   headerButton: {
     backgroundColor: 'rgba(255,255,255,0.1)',
     margin: 0,
+    marginLeft: 8,
   },
   messagesContainer: {
     flex: 1,
@@ -421,6 +733,8 @@ const styles = StyleSheet.create({
   },
   userMessageText: {
     color: '#FFFFFF',
+    fontSize: 15,
+    lineHeight: 20,
   },
   codeBlock: {
     marginTop: 8,
@@ -438,6 +752,20 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     fontSize: 12,
     fontWeight: '500',
+  },
+  copyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  copyButtonText: {
+    color: '#9CA3AF',
+    fontSize: 11,
+    marginLeft: 4,
+    fontWeight: '400',
   },
   codeText: {
     color: '#E5E7EB',
@@ -457,23 +785,102 @@ const styles = StyleSheet.create({
     padding: 16,
     alignItems: 'center',
   },
+  loadingText: {
+    marginTop: 8,
+    color: '#6B7280',
+    fontSize: 14,
+  },
   snackbar: {
     backgroundColor: '#1F2937',
   },
-  copyResponseButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    marginTop: 4,
-    marginLeft: 4,
-  },
-  copyResponseText: {
-    color: '#9CA3AF',
-    fontSize: 11,
-    marginLeft: 2,
-    fontWeight: '400',
-  },
   errorText: {
     color: '#EF4444',
+  },
+  boldText: {
+    fontWeight: 'bold',
+    color: '#6366F1',
+  },
+  italicText: {
+    fontStyle: 'italic',
+    color: '#10B981',
+  },
+  bulletPoint: {
+    flexDirection: 'row',
+    marginBottom: 8,
+    paddingLeft: 8,
+  },
+  bullet: {
+    marginRight: 8,
+    fontSize: 16,
+  },
+  bulletText: {
+    flex: 1,
+    fontSize: 16,
+    lineHeight: 24,
+  },
+  // Chat history styles
+  historyOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  historyContent: {
+    width: '90%',
+    maxHeight: '80%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    overflow: 'hidden',
+    padding: 16,
+  },
+  historyHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  historyTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  historyList: {
+    maxHeight: '80%',
+  },
+  historyItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  historyItemContent: {
+    flex: 1,
+  },
+  historyItemTitle: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  historyItemDate: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  emptyHistoryText: {
+    textAlign: 'center',
+    color: '#6B7280',
+    marginTop: 32,
+    marginBottom: 32,
+  },
+  newChatButton: {
+    marginTop: 16,
+    backgroundColor: '#6366F1',
   },
 }); 

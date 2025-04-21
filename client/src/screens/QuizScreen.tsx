@@ -78,7 +78,7 @@ export default function QuizScreen() {
   const fetchQuiz = async () => {
     try {
       setLoading(true);
-      const response = await api.get(`/quizzes/course/${courseId}`);
+      const response = await api.get(`/quiz/course/${courseId}`);
       setQuiz(response.data);
       setLoading(false);
     } catch (error: any) {
@@ -107,7 +107,7 @@ export default function QuizScreen() {
     if (!quiz || !user) return;
 
     try {
-      const response = await api.post('/quizzes/submit', {
+      const response = await api.post('/quiz/submit', {
         quizId: quiz._id,
         courseId,
         answers: selectedAnswers

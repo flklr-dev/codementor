@@ -18,6 +18,8 @@ import axios from 'axios';
 import { useAppSelector, useAppDispatch } from '../store/hooks';
 import api from '../services/api';
 import { updateUserData } from '../store/slices/authSlice';
+import AppHeader from '../components/AppHeader';
+import XPProgressBar from '../components/XPProgressBar';
 
 interface Achievement {
   _id: string;
@@ -198,12 +200,13 @@ export default function AchievementsScreen() {
 
   if (loading && !userStats) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={styles.container}>
+        <AppHeader />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
           <Text style={styles.loadingText}>Loading achievements...</Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
@@ -223,56 +226,16 @@ export default function AchievementsScreen() {
   const newAchievementsCount = achievements.filter(a => !a.earned && a.progress > 0).length;
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Hero Section with Linear Gradient */}
-      <LinearGradient
-        colors={['#6366F1', '#818CF8']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.heroSection}>
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <View style={styles.levelBadgeContainer}>
-              <Surface style={styles.levelBadge}>
-                <Text style={styles.levelText}>{stats.level}</Text>
-              </Surface>
-              <Text style={styles.levelLabel}>LEVEL</Text>
-            </View>
-            <View style={styles.headerContent}>
-              <Text style={styles.headerTitle}>Your Progress</Text>
-              <View style={styles.streakContainer}>
-                <View style={styles.streakBadge}>
-                  <Ionicons name="flame" size={16} color="#FCD34D" />
-                  <Text style={styles.streakText}>{stats.streak} Day Streak</Text>
-                </View>
-              </View>
-            </View>
-          </View>
-        </View>
-
-        {/* XP Progress */}
-        <View style={styles.progressInfo}>
-          <View style={styles.progressContainer}>
-            <View style={styles.progressHeader}>
-              <Text style={styles.progressLabel}>Experience Points</Text>
-              <Text style={styles.xpText}>
-                {stats.xp}/{stats.nextLevelXp} XP
-              </Text>
-            </View>
-            <View style={styles.progressBarContainer}>
-              <View 
-                style={[
-                  styles.progressBarFill,
-                  { width: `${(stats.xp / stats.nextLevelXp) * 100}%` }
-                ]} 
-              />
-            </View>
-            <Text style={styles.progressSubtext}>
-              {stats.nextLevelXp - stats.xp} XP until next level
-            </Text>
-          </View>
-        </View>
-      </LinearGradient>
+    <View style={styles.container}>
+      <AppHeader />
+      
+      {/* Hero Section with solid color */}
+      <View style={styles.heroSection}>
+        <XPProgressBar 
+          xp={stats.xp} 
+          nextLevelXp={stats.nextLevelXp}
+        />
+      </View>
 
       <ScrollView 
         style={styles.scrollView}
@@ -426,7 +389,7 @@ export default function AchievementsScreen() {
           )}
         </View>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -462,117 +425,16 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 12,
   },
   heroSection: {
-    padding: 16,
-    paddingTop: 12,
+    paddingTop: 16,
     paddingBottom: 24,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  levelBadgeContainer: {
-    alignItems: 'center',
-  },
-  levelBadge: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 2,
-  },
-  levelText: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  levelLabel: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#E5E7EB',
-    marginTop: 4,
-  },
-  headerContent: {
-    marginLeft: 16,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    marginBottom: 4,
-  },
-  streakContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  streakBadge: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(251, 191, 36, 0.2)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 16,
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 6,
-  },
-  streakText: {
-    color: '#FCD34D',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  progressInfo: {
-    marginHorizontal: 16,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 16,
-    padding: 16,
-  },
-  progressContainer: {
-    gap: 12,
-  },
-  progressHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  progressLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  xpText: {
-    fontSize: 14,
-    color: '#E5E7EB',
-    fontWeight: '500',
-  },
-  progressBarContainer: {
-    height: 4,
-    backgroundColor: '#E5E7EB',
-    overflow: 'hidden',
-  },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: '#FCD34D',
-    borderRadius: 5,
-  },
-  progressSubtext: {
-    fontSize: 12,
-    color: '#E5E7EB',
-    textAlign: 'center',
+    backgroundColor: '#6366F1',
   },
   scrollView: {
     flex: 1,
     padding: 16,
+    marginTop: 0,
   },
   statsContainer: {
-    marginTop: 32,
-    paddingHorizontal: 16,
     marginBottom: 32,
   },
   statsTitle: {
@@ -619,7 +481,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   achievementsContainer: {
-    paddingHorizontal: 16,
     paddingBottom: 80,
   },
   sectionHeader: {
@@ -725,6 +586,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#F59E0B',
     marginLeft: 4,
+  },
+  progressBarContainer: {
+    height: 4,
+    backgroundColor: '#E5E7EB',
+    overflow: 'hidden',
   },
   progressBarFull: {
     height: '100%',

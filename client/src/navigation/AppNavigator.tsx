@@ -8,11 +8,33 @@ import CourseDetailScreen from '../screens/CourseDetailScreen';
 import AIMentorScreen from '../screens/AIMentorScreen';
 import AchievementsScreen from '../screens/AchievementsScreen';
 import AccountScreen from '../screens/AccountScreen';
+import EditProfileScreen from '../screens/EditProfileScreen';
 import CoursesCategoryScreen from '../screens/CoursesCategoryScreen';
 import QuizScreen from '../screens/QuizScreen';
+import SettingsScreen from '../screens/SettingsScreen';
 
-const Tab = createBottomTabNavigator();
-const Stack = createStackNavigator();
+// Define the tab navigator param list
+export type TabNavigatorParamList = {
+  Home: undefined;
+  Lessons: undefined;
+  Mentor: undefined;
+  Achievements: undefined;
+  Account: undefined;
+};
+
+// Define the stack navigator param list
+export type RootStackParamList = {
+  TabNavigator: undefined;
+  CourseDetail: { courseId: string };
+  LessonDetail: { lessonId: string };
+  CoursesCategory: { difficulty?: string; tag?: string; title: string };
+  Quiz: { quizId: string };
+  EditProfile: undefined;
+  CacheSettings: undefined;
+};
+
+const Tab = createBottomTabNavigator<TabNavigatorParamList>();
+const Stack = createStackNavigator<RootStackParamList>();
 
 function TabNavigator() {
   return (
@@ -38,6 +60,8 @@ export default function AppNavigator() {
       <Stack.Screen name="LessonDetail" component={LessonDetailScreen} />
       <Stack.Screen name="CoursesCategory" component={CoursesCategoryScreen} />
       <Stack.Screen name="Quiz" component={QuizScreen} />
+      <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+      <Stack.Screen name="CacheSettings" component={SettingsScreen} />
     </Stack.Navigator>
   );
 } 

@@ -2,22 +2,13 @@ import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../../services/api';
 import axios from 'axios';
+import { User, AuthState } from '../../types';
 
 // Add this interface definition before your authSlice
 interface RegisterCredentials {
   name: string;
   email: string;
   password: string;
-}
-
-// Define state interface
-interface AuthState {
-  token: string | null;
-  user: any | null;
-  isLoading: boolean;
-  error: string | null;
-  isRegistered: boolean; // Add this to track registration vs login
-  isRegistrationSuccess: boolean;
 }
 
 // Initial state
@@ -87,11 +78,29 @@ export const loadAuth = createAsyncThunk(
 
 export const updateUserData = createAsyncThunk(
   'auth/updateUserData',
-  async (_, { rejectWithValue, getState }) => {
+  async (userData: any = null, { rejectWithValue }) => {
     try {
-      const response = await api.get('/auth/me');
+      // If user data is provided directly, use it
+      if (userData) {
+        console.log('Using provided user data for update');
+        return userData;
+      }
+      
+      // Otherwise fetch fresh data from server
+      // Add timestamp and force parameter to avoid caching
+      const timestamp = new Date().getTime();
+      console.log('Fetching fresh user data from server');
+      const response = await api.get(`/auth/me?t=${timestamp}&force=true`);
+      
+      console.log('User data fetched successfully:', {
+        id: response.data?.id,
+        name: response.data?.name,
+        hasProfilePicture: !!response.data?.profilePicture
+      });
+      
       return response.data;
     } catch (error: any) {
+      console.error('Failed to update user data:', error);
       return rejectWithValue(
         error.response?.data?.error || 
         error.message || 

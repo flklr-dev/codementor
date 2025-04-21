@@ -5,6 +5,46 @@ const UserProgress = require('../models/UserProgress');
 const Achievement = require('../models/Achievement');
 const auth = require('../middleware/auth');
 const router = express.Router();
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const { sendVerificationEmail } = require('../utils/email');
+
+// Configure storage for profile pictures
+const storage = multer.diskStorage({
+  destination: function(req, file, cb) {
+    const uploadDir = path.join(__dirname, '../public/uploads/profile');
+    // Create directory if it doesn't exist
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: function(req, file, cb) {
+    // Use userId + timestamp to ensure unique filenames
+    const userId = req.userId || 'unknown';
+    const timestamp = Date.now();
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `${userId}-${timestamp}${ext}`);
+  }
+});
+
+// File filter to allow only images
+const fileFilter = (req, file, cb) => {
+  if (file.mimetype.startsWith('image/')) {
+    cb(null, true);
+  } else {
+    cb(new Error('Not an image! Please upload only images.'), false);
+  }
+};
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  },
+  fileFilter: fileFilter
+});
 
 // Register a new user
 router.post('/register', async (req, res) => {
@@ -25,7 +65,9 @@ router.post('/register', async (req, res) => {
       streak: 1,
       level: 1,
       xp: 0,
-      lastLogin: new Date()
+      lastLogin: new Date(),
+      lastEmailChange: new Date(),
+      lastNameChange: new Date()
     });
     await user.save();
     
@@ -195,17 +237,26 @@ async function checkAndUpdateAchievements(userId) {
 // Get current user
 router.get('/me', auth, async (req, res) => {
   try {
-    // Get fresh user data from database (don't use cached req.user)
+    // Always get fresh user data from database (don't use cached req.user)
     const freshUser = await User.findById(req.userId);
     if (!freshUser) {
       return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Force a fresh database query if force=true is in the query
+    if (req.query.force === 'true') {
+      console.log('Forcing fresh user data from database');
+      // This is just to ensure we're not getting cached data from MongoDB
+      await User.collection.findOne({ _id: freshUser._id });
     }
     
     console.log('Fresh user data:', {
       id: freshUser._id,
       xp: freshUser.xp,
       level: freshUser.level,
-      streak: freshUser.streak
+      streak: freshUser.streak,
+      pendingEmail: freshUser.pendingEmail,
+      hasEmailVerificationToken: !!freshUser.emailVerificationToken
     });
     
     res.json({
@@ -214,7 +265,10 @@ router.get('/me', auth, async (req, res) => {
       email: freshUser.email,
       level: freshUser.level,
       xp: freshUser.xp,
-      streak: freshUser.streak
+      streak: freshUser.streak,
+      profilePicture: freshUser.profilePicture,
+      pendingEmail: freshUser.pendingEmail,
+      emailVerificationToken: freshUser.emailVerificationToken
     });
   } catch (error) {
     console.error('Error fetching user data:', error);
@@ -222,41 +276,83 @@ router.get('/me', auth, async (req, res) => {
   }
 });
 
-// Update user profile
-router.put('/profile', auth, async (req, res) => {
+// Get user profile change restrictions
+router.get('/restrictions', auth, async (req, res) => {
   try {
-    const { name, email } = req.body;
-    
-    // Find user
-    const user = await User.findById(req.user.userId);
+    const user = await User.findById(req.userId);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
     
-    // Update fields
+    // Initialize restriction dates if they don't exist
+    if (!user.lastEmailChange) user.lastEmailChange = new Date(0);
+    if (!user.lastNameChange) user.lastNameChange = new Date(0);
+    
+    const now = new Date();
+    const emailChangeAllowed = !user.lastEmailChange || 
+      (now - new Date(user.lastEmailChange) > 90 * 24 * 60 * 60 * 1000); // 90 days
+    const nameChangeAllowed = !user.lastNameChange || 
+      (now - new Date(user.lastNameChange) > 7 * 24 * 60 * 60 * 1000); // 7 days
+    
+    res.json({
+      emailChangeAllowed,
+      nameChangeAllowed,
+      lastEmailChange: user.lastEmailChange,
+      lastNameChange: user.lastNameChange,
+      emailNextChangeDate: new Date(new Date(user.lastEmailChange).getTime() + 90 * 24 * 60 * 60 * 1000),
+      nameNextChangeDate: new Date(new Date(user.lastNameChange).getTime() + 7 * 24 * 60 * 60 * 1000)
+    });
+  } catch (error) {
+    console.error('Error fetching user restrictions:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Update user profile
+router.put('/profile', auth, upload.single('profileImage'), async (req, res) => {
+  try {
+    const { name } = req.body;
+    
+    const user = await User.findById(req.userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Always update name if provided
     if (name) user.name = name;
-    if (email) {
-      // Check if email is already in use by another user
-      const existingUser = await User.findOne({ email });
-      if (existingUser && existingUser._id.toString() !== user._id.toString()) {
-        return res.status(400).json({ error: 'Email already in use' });
+    
+    // Handle profile image upload
+    if (req.file) {
+      // If user already has a profile image, delete the old one
+      if (user.profileImage && user.profileImage.startsWith('uploads/')) {
+        const oldImagePath = path.join(__dirname, '..', user.profileImage);
+        // Check if file exists and delete it
+        if (fs.existsSync(oldImagePath)) {
+          fs.unlinkSync(oldImagePath);
+        }
       }
-      user.email = email;
+      
+      // Set new profile image path
+      user.profileImage = req.file.path.replace(/\\/g, '/'); // Normalize path for Windows
     }
     
     await user.save();
     
-    res.json({
-      id: user._id,
+    // Return updated user without sensitive fields
+    const updatedUser = {
+      _id: user._id,
       name: user.name,
       email: user.email,
-      level: user.level,
-      xp: user.xp,
-      streak: user.streak
-    });
+      profileImage: user.profileImage,
+      role: user.role,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt
+    };
+    
+    res.json({ message: 'Profile updated successfully', user: updatedUser });
   } catch (error) {
     console.error('Error updating profile:', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: 'Failed to update profile' });
   }
 });
 
@@ -333,6 +429,115 @@ router.post('/check-streak', auth, async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating streak:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Update user profile with profile picture
+router.put('/profile/update', auth, upload.single('profilePicture'), async (req, res) => {
+  try {
+    const { name } = req.body;
+    
+    console.log('Profile update request received');
+    console.log('File uploaded:', req.file ? req.file.filename : 'No file');
+    
+    // Find user
+    const user = await User.findById(req.userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Update name if provided
+    if (name && name.trim()) {
+      user.name = name.trim();
+    }
+    
+    // Process the profile picture if it was uploaded
+    if (req.file) {
+      console.log('Processing uploaded profile picture:', req.file.filename);
+      
+      // Create directory if it doesn't exist
+      const uploadDir = path.join(__dirname, '../public/uploads/profile');
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+      }
+      
+      // Construct full path to the old profile picture if it exists
+      if (user.profilePicture) {
+        try {
+          let oldPicturePath;
+          if (user.profilePicture.startsWith('/')) {
+            // If it starts with a slash, it's a relative path to the server root
+            oldPicturePath = path.join(__dirname, '..', user.profilePicture);
+          } else {
+            // Otherwise might be just a filename in the uploads directory
+            oldPicturePath = path.join(__dirname, '../public/uploads/profile', user.profilePicture);
+          }
+          
+          console.log('Checking old picture path:', oldPicturePath);
+          
+          // Delete the old file if it exists and is not a default avatar
+          if (!user.profilePicture.includes('default') && fs.existsSync(oldPicturePath)) {
+            console.log('Deleting old profile picture');
+            fs.unlinkSync(oldPicturePath);
+          }
+        } catch (err) {
+          console.error('Error deleting old profile picture:', err);
+          // Continue even if deletion fails
+        }
+      }
+      
+      // Set new profile picture path (relative to server root)
+      const relativePath = `/public/uploads/profile/${req.file.filename}`;
+      console.log('Setting new profile picture path:', relativePath);
+      user.profilePicture = relativePath;
+    }
+    
+    await user.save();
+    
+    // Get server base URL from request
+    const protocol = req.protocol || 'http';
+    const host = req.get('host') || 'localhost:4000';
+    const baseUrl = `${protocol}://${host}`;
+    
+    // Construct both types of URLs that the client might need
+    let profilePictureUrl = null;
+    let fullProfilePictureUrl = null;
+    
+    if (user.profilePicture) {
+      // Create a URL without the /api prefix for direct file access
+      profilePictureUrl = `${baseUrl}${user.profilePicture}`;
+      
+      // Create a URL with the /api prefix for API-based file access
+      fullProfilePictureUrl = user.profilePicture.startsWith('/public') 
+        ? `${baseUrl}/api${user.profilePicture}`  // Add /api for public files if needed
+        : profilePictureUrl;
+      
+      console.log('Profile picture URLs:');
+      console.log('- Relative path:', user.profilePicture);
+      console.log('- Direct URL:', profilePictureUrl);
+      console.log('- API URL:', fullProfilePictureUrl);
+    }
+    
+    // Return user data with all URL variants
+    const userData = {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      level: user.level,
+      xp: user.xp,
+      streak: user.streak,
+      // Return all URL variations to help client handle different server configurations
+      profilePicture: user.profilePicture,
+      profilePictureUrl: profilePictureUrl,
+      fullProfilePictureUrl: fullProfilePictureUrl
+    };
+    
+    console.log('Profile updated successfully');
+    
+    res.json(userData);
+  } catch (error) {
+    console.error('Update profile error:', error);
     res.status(500).json({ error: 'Server error' });
   }
 });

@@ -10,6 +10,8 @@ const dashboardRoutes = require('./routes/dashboard');
 const coursesRoutes = require('./routes/courses');
 const lessonsRoutes = require('./routes/lessons');
 const trackingRoutes = require('./routes/tracking');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -23,6 +25,36 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Serve static files directly from public directory WITHOUT the /public prefix
+app.use(express.static(path.join(__dirname, 'public')));
+console.log('Serving static files directly from:', path.join(__dirname, 'public'));
+
+// Also serve with the /public prefix for compatibility
+app.use('/public', express.static(path.join(__dirname, 'public')));
+console.log('Also serving static files at /public from:', path.join(__dirname, 'public'));
+
+// Also serve at /api/public for API-based routes
+app.use('/api/public', express.static(path.join(__dirname, 'public')));
+console.log('Also serving static files at /api/public from:', path.join(__dirname, 'public'));
+
+// Add a specific route to serve profile pictures for debugging
+app.get('/api/public/uploads/profile/:filename', (req, res) => {
+  const { filename } = req.params;
+  const filePath = path.join(__dirname, 'public', 'uploads', 'profile', filename);
+  
+  console.log('Profile picture requested:', filename);
+  console.log('Looking for file at:', filePath);
+  
+  // Check if file exists
+  if (fs.existsSync(filePath)) {
+    console.log('File exists, sending...');
+    return res.sendFile(filePath);
+  } else {
+    console.log('File not found');
+    return res.status(404).send('File not found');
+  }
+});
 
 // Routes
 app.use('/api/auth', authRoutes);

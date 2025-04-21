@@ -19,6 +19,10 @@ const userSchema = new mongoose.Schema({
     required: true,
     minlength: 6
   },
+  profilePicture: {
+    type: String,
+    default: ''
+  },
   level: {
     type: Number,
     default: 1
@@ -34,6 +38,22 @@ const userSchema = new mongoose.Schema({
   lastLogin: {
     type: Date,
     default: Date.now
+  },
+  lastEmailChange: {
+    type: Date,
+    default: Date.now
+  },
+  lastNameChange: {
+    type: Date,
+    default: Date.now
+  },
+  pendingEmail: {
+    type: String,
+    default: null
+  },
+  emailVerificationToken: {
+    type: String,
+    default: null
   },
   createdAt: {
     type: Date,
