@@ -15,15 +15,11 @@ type AppHeaderNavigation = StackNavigationProp<TabNavigatorParamList>;
 interface AppHeaderProps {
   title?: string;
   showBackButton?: boolean;
-  showNotification?: boolean;
-  onNotificationPress?: () => void;
 }
 
 export default function AppHeader({
   title,
   showBackButton = false,
-  showNotification = true,
-  onNotificationPress,
 }: AppHeaderProps) {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<AppHeaderNavigation>();
@@ -134,16 +130,6 @@ export default function AppHeader({
             </View>
           </View>
         </TouchableOpacity>
-        
-        {showNotification && (
-          <IconButton
-            icon="bell-outline"
-            iconColor="#FFFFFF"
-            size={24}
-            style={styles.notificationButton}
-            onPress={onNotificationPress || (() => {})}
-          />
-        )}
       </View>
     </View>
   );

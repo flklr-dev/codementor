@@ -219,49 +219,7 @@ export default function AccountScreen() {
   };
 
   const settingsSections: SettingSection[] = [
-    {
-      title: 'Preferences',
-      items: [
-        {
-          icon: 'moon',
-          label: 'Dark Mode',
-          type: 'switch',
-          value: isDarkMode,
-          onValueChange: setIsDarkMode,
-        },
-        {
-          icon: 'notifications',
-          label: 'Notifications',
-          type: 'switch',
-          value: notifications,
-          onValueChange: setNotifications,
-        },
-        {
-          icon: 'globe',
-          label: 'Language',
-          value: 'English',
-          type: 'link',
-          onPress: () => {},
-        },
-      ],
-    },
-    {
-      title: 'Privacy & Security',
-      items: [
-        {
-          icon: 'shield-checkmark',
-          label: 'Privacy Settings',
-          type: 'link',
-          onPress: () => {},
-        },
-        {
-          icon: 'save',
-          label: 'Cache Settings',
-          type: 'link',
-          onPress: () => navigation.navigate('CacheSettings'),
-        },
-      ],
-    },
+    // Removed preferences and privacy & security sections
   ];
 
   const handleLogout = () => {
