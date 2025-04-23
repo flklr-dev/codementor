@@ -22,14 +22,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { loginUser, clearError } from '../store/slices/authSlice';
+import { AuthStackParamList } from '../navigation/AuthStack';
 
-type RootStackParamList = {
-  Login: undefined;
-  Signup: undefined;
-  Main: undefined;
-};
-
-type LoginScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Login'>;
+type LoginScreenNavigationProp = NativeStackNavigationProp<AuthStackParamList, 'Login'>;
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
@@ -60,10 +55,8 @@ export default function LoginScreen() {
       
       // Navigate after showing success message for a short time
       const timer = setTimeout(() => {
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'Main' }],
-        });
+        // This needs to be handled at the App level since 'Main' is in the root navigator
+        // Simply do nothing here as App.tsx will handle the navigation based on token
       }, 1500); // Show success message for 1.5 seconds
       
       return () => clearTimeout(timer);
@@ -143,7 +136,7 @@ export default function LoginScreen() {
 
               <TouchableOpacity
                 style={styles.forgotPassword}
-                onPress={() => console.log('Forgot password')}>
+                onPress={() => navigation.navigate('ForgotPassword')}>
                 <Text style={{ color: theme.colors.primary }}>
                   Forgot Password?
                 </Text>

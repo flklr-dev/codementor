@@ -11,21 +11,18 @@ import api from './src/services/api';
 import FlashMessage from 'react-native-flash-message';
 import NetInfo from '@react-native-community/netinfo';
 
-import LoginScreen from './src/screens/LoginScreen';
-import SignupScreen from './src/screens/SignupScreen';
+import AuthStack from './src/navigation/AuthStack';
 import AppNavigator from './src/navigation/AppNavigator';
 import { ActivityIndicator, View, Text } from 'react-native';
 import OfflineNotice from './src/components/OfflineNotice';
 import cacheService from './src/services/cacheService';
 
-// Define the auth stack navigator param list
-type AuthStackParamList = {
-  Login: undefined;
-  Signup: undefined;
+// Define the app root stack navigator param list
+type RootStackParamList = {
   Main: undefined;
 };
 
-const Stack = createNativeStackNavigator<AuthStackParamList>();
+const Stack = createNativeStackNavigator<RootStackParamList>();
 
 function AppContent() {
   const dispatch = useAppDispatch();
@@ -94,20 +91,11 @@ function AppContent() {
   return (
     <NavigationContainer>
       <OfflineNotice />
-      <Stack.Navigator
-        initialRouteName={token ? "Main" : "Login"}
-        screenOptions={{
-          headerShown: false,
-        }}>
-        {token ? (
-          <Stack.Screen name="Main" component={AppNavigator} />
-        ) : (
-          <>
-            <Stack.Screen name="Login" component={LoginScreen} />
-            <Stack.Screen name="Signup" component={SignupScreen} />
-          </>
-        )}
-      </Stack.Navigator>
+      {token ? (
+        <AppNavigator />
+      ) : (
+        <AuthStack />
+      )}
       <FlashMessage position="top" />
     </NavigationContainer>
   );

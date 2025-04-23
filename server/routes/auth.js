@@ -9,6 +9,8 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { sendVerificationEmail } = require('../utils/email');
+const bcrypt = require('bcrypt');
+const { sendEmail } = require('../utils/email');
 
 // Configure storage for profile pictures
 const storage = multer.diskStorage({
@@ -539,6 +541,138 @@ router.put('/profile/update', auth, upload.single('profilePicture'), async (req,
   } catch (error) {
     console.error('Update profile error:', error);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Forgot Password - Request reset
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ message: 'Email is required' });
+    }
+    
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ message: 'No account found with that email address' });
+    }
+    
+    // Generate a random 6-digit code
+    const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const resetCodeExpires = Date.now() + 3600000; // 1 hour from now
+    
+    // Save the code and expiration to the user
+    user.resetPasswordCode = resetCode;
+    user.resetPasswordExpires = resetCodeExpires;
+    await user.save();
+    
+    // Create dummy user object for email compatibility
+    const dummyUser = {
+      name: user.name || 'User'
+    };
+    
+    // Create verification URL - not used but required by function
+    const verificationUrl = `${req.protocol}://${req.get('host')}/reset-password`;
+    
+    // Send email with the reset code
+    const subject = 'CodeMentor Password Reset';
+    const text = `Your password reset code is: ${resetCode}. This code will expire in 1 hour.`;
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px;">
+        <h2 style="color: #6366F1; text-align: center;">CodeMentor Password Reset</h2>
+        <p>Hello ${user.name || 'User'},</p>
+        <p>We received a request to reset your password. Please use the following code to reset your password:</p>
+        <div style="text-align: center; margin: 20px 0;">
+          <span style="font-size: 24px; font-weight: bold; background-color: #f0f0f0; padding: 10px 15px; border-radius: 5px; letter-spacing: 5px;">${resetCode}</span>
+        </div>
+        <p>This code will expire in 1 hour.</p>
+        <p>If you didn't request a password reset, please ignore this email or contact support if you have concerns.</p>
+        <p>Best regards,<br>The CodeMentor Team</p>
+      </div>
+    `;
+    
+    // Send email using the method available in email.js
+    const emailResult = await sendEmail({
+      to: email,
+      subject,
+      text,
+      html
+    });
+    
+    console.log('Password reset email sent:', emailResult);
+    
+    res.status(200).json({ message: 'Password reset code has been sent to your email' });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// Verify reset code
+router.post('/verify-reset-code', async (req, res) => {
+  try {
+    const { email, resetCode } = req.body;
+    
+    if (!email || !resetCode) {
+      return res.status(400).json({ message: 'Email and reset code are required' });
+    }
+    
+    const user = await User.findOne({ 
+      email,
+      resetPasswordCode: resetCode,
+      resetPasswordExpires: { $gt: Date.now() }
+    });
+    
+    if (!user) {
+      return res.status(400).json({ message: 'Invalid or expired reset code' });
+    }
+    
+    res.status(200).json({ message: 'Reset code verified successfully' });
+  } catch (error) {
+    console.error('Verify reset code error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// Reset Password with code
+router.post('/reset-password', async (req, res) => {
+  try {
+    const { email, resetCode, newPassword } = req.body;
+    
+    if (!email || !resetCode || !newPassword) {
+      return res.status(400).json({ message: 'Email, reset code and new password are required' });
+    }
+    
+    // Password validation
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: 'Password must be at least 6 characters long' });
+    }
+    
+    const user = await User.findOne({ 
+      email,
+      resetPasswordCode: resetCode,
+      resetPasswordExpires: { $gt: Date.now() }
+    });
+    
+    if (!user) {
+      return res.status(400).json({ message: 'Invalid or expired reset code' });
+    }
+    
+    // Hash the new password
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(newPassword, salt);
+    
+    // Clear the reset code fields
+    user.resetPasswordCode = undefined;
+    user.resetPasswordExpires = undefined;
+    
+    await user.save();
+    
+    res.status(200).json({ message: 'Password has been reset successfully' });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 

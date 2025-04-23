@@ -114,6 +114,11 @@ const sendEmail = async (options) => {
   try {
     console.log('Attempting to send email to:', options.to);
     console.log('Using email credentials:', process.env.EMAIL_USER);
+    console.log('Email content:', {
+      subject: options.subject,
+      text: options.text.substring(0, 100) + '...',
+      htmlLength: options.html ? options.html.length : 0
+    });
     
     // First try direct with gmail-send
     try {
