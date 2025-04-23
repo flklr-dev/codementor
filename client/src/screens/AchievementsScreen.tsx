@@ -229,20 +229,20 @@ export default function AchievementsScreen() {
     <View style={styles.container}>
       <AppHeader />
       
-      {/* Hero Section with solid color */}
-      <View style={styles.heroSection}>
-        <XPProgressBar 
-          xp={stats.xp} 
-          nextLevelXp={stats.nextLevelXp}
-        />
-      </View>
-
       <ScrollView 
         style={styles.scrollView}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
+        {/* XP Progress Bar moved into scrollable content */}
+        <View style={styles.heroSection}>
+          <XPProgressBar 
+            xp={stats.xp} 
+            nextLevelXp={stats.nextLevelXp}
+          />
+        </View>
+
         {/* Quick Stats */}
         <View style={styles.statsContainer}>
           <Text style={styles.statsTitle}>Quick Stats</Text>
@@ -424,18 +424,18 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 12,
     borderBottomRightRadius: 12,
   },
+  scrollView: {
+    flex: 1,
+  },
   heroSection: {
     paddingTop: 16,
     paddingBottom: 24,
     backgroundColor: '#6366F1',
-  },
-  scrollView: {
-    flex: 1,
-    padding: 16,
-    marginTop: 0,
+    marginBottom: 24,
   },
   statsContainer: {
     marginBottom: 32,
+    paddingHorizontal: 16,
   },
   statsTitle: {
     fontSize: 24,
@@ -482,6 +482,7 @@ const styles = StyleSheet.create({
   },
   achievementsContainer: {
     paddingBottom: 80,
+    paddingHorizontal: 16,
   },
   sectionHeader: {
     flexDirection: 'row',

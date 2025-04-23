@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, ScrollView, Switch, TouchableOpacity, Image, KeyboardAvoidingView, Platform, RefreshControl } from 'react-native';
+import { StyleSheet, View, ScrollView, Switch, TouchableOpacity, Image, KeyboardAvoidingView, Platform, RefreshControl, Alert } from 'react-native';
 import {
   Text,
   Avatar,
@@ -28,7 +28,7 @@ import cacheService from '../services/cacheService';
 // Define Asset type from ImagePicker
 type Asset = ImagePicker.ImagePickerAsset;
 
-type IconName = 'moon' | 'notifications' | 'globe' | 'shield-checkmark' | 'chevron-forward' | 'save';
+type IconName = 'moon' | 'notifications' | 'globe' | 'shield-checkmark' | 'chevron-forward' | 'save' | 'document-text';
 
 interface SettingItem {
   icon: IconName;
@@ -219,7 +219,98 @@ export default function AccountScreen() {
   };
 
   const settingsSections: SettingSection[] = [
-    // Removed preferences and privacy & security sections
+    {
+      title: 'Legal',
+      items: [
+        {
+          icon: 'document-text',
+          label: 'Terms & Conditions',
+          type: 'link',
+          onPress: () => {
+            Alert.alert(
+              'Terms & Conditions',
+              `Last Updated: ${new Date().toLocaleDateString()}
+
+1. Acceptance of Terms
+By accessing and using this application, you accept and agree to be bound by these Terms and Conditions.
+
+2. User Accounts
+- You must provide accurate information when creating an account
+- You are responsible for maintaining the confidentiality of your account
+- You must notify us immediately of any unauthorized use of your account
+
+3. Content and Intellectual Property
+- All course materials, lessons, and content are protected by copyright
+- You may not reproduce, distribute, or modify any content without permission
+- Your progress and achievements are stored securely on our servers
+
+4. User Conduct
+- You agree to use the application for educational purposes only
+- You will not attempt to bypass any security measures
+- You will not share your account credentials with others
+
+5. Termination
+We reserve the right to terminate or suspend your account for violations of these terms.
+
+6. Changes to Terms
+We may modify these terms at any time. Continued use of the application constitutes acceptance of modified terms.`,
+              [{ text: 'Close', style: 'cancel' }]
+            );
+          },
+        },
+        {
+          icon: 'shield-checkmark',
+          label: 'Privacy Policy',
+          type: 'link',
+          onPress: () => {
+            Alert.alert(
+              'Privacy Policy',
+              `Last Updated: ${new Date().toLocaleDateString()}
+
+1. Information We Collect
+- Account information (name, email, profile picture)
+- Learning progress and achievements
+- Device information and usage statistics
+- Cache data for offline access
+
+2. How We Use Your Information
+- To provide and improve our services
+- To track your learning progress
+- To personalize your learning experience
+- To communicate important updates
+
+3. Data Storage and Security
+- Your data is stored securely on our servers
+- We implement industry-standard security measures
+- Regular backups are performed to prevent data loss
+
+4. Third-Party Services
+- We use analytics tools to improve our services
+- Some features may require third-party integrations
+- We ensure all third-party services comply with privacy standards
+
+5. Your Rights
+- You can access and update your personal information
+- You can request deletion of your account and data
+- You can opt-out of certain data collection
+
+6. Cookies and Local Storage
+- We use cookies to enhance your experience
+- Local storage is used for caching and offline access
+- You can clear your cache at any time
+
+7. Children's Privacy
+- Our services are not intended for children under 13
+- We do not knowingly collect data from children
+
+8. Changes to Privacy Policy
+We may update this policy periodically. Continued use of the application constitutes acceptance of the updated policy.`,
+              [{ text: 'Close', style: 'cancel' }]
+            );
+          },
+        },
+      ],
+    },
   ];
 
   const handleLogout = () => {
