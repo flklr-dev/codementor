@@ -57,6 +57,7 @@ interface UserProfile {
   xp: number;
   streak: number;
   profilePicture?: string;
+  lastFetched?: number;
 }
 
 interface ProfileRestrictions {
@@ -85,6 +86,14 @@ export default function AccountScreen() {
   
   // Get user data from Redux store
   const { user: reduxUser } = useAppSelector(state => state.auth);
+  
+  // Memoize the profile image URL to prevent repeated URL construction
+  const profileImageUrl = React.useMemo(() => {
+    if (!user?.profilePicture) return undefined;
+    return user.profilePicture.startsWith('http') 
+      ? user.profilePicture 
+      : `${api.defaults.baseURL}${user.profilePicture}`;
+  }, [user?.profilePicture]);
 
   // Fetch latest user data when screen is focused
   useFocusEffect(
@@ -97,6 +106,12 @@ export default function AccountScreen() {
           setName(reduxUser.name || '');
           setEmail(reduxUser.email || '');
           setLoading(false);
+          
+          // Avoid duplicate fetches - if we have recent data, don't fetch again
+          if (reduxUser && 'lastFetched' in reduxUser && 
+              Date.now() - (reduxUser.lastFetched as number) < 60000) {
+            return;
+          }
         }
         
         try {
@@ -111,8 +126,12 @@ export default function AccountScreen() {
             setUser(cachedUser);
             setName(cachedUser.name || '');
             setEmail(cachedUser.email || '');
-            dispatch(updateUserData(cachedUser));
+            dispatch(updateUserData({...cachedUser, lastFetched: Date.now()}));
             setLoading(false);
+            
+            // Only do a background refresh if the cache is older than 5 minutes
+            const cacheAge = Date.now() - (cachedUser.lastFetched as number || 0);
+            if (cacheAge < 300000) return; // Skip refresh if cache is fresh (less than 5 minutes old)
             
             // Do a quick background refresh (without showing loading)
             try {
@@ -122,11 +141,14 @@ export default function AccountScreen() {
               if (!isMounted) return;
               
               if (response.data) {
-                await cacheService.cacheUserData(response.data);
-                dispatch(updateUserData(response.data));
-                setUser(response.data);
-                setName(response.data.name || '');
-                setEmail(response.data.email || '');
+                // Add lastFetched timestamp
+                const userData = {...response.data, lastFetched: Date.now()};
+                
+                await cacheService.cacheUserData(userData);
+                dispatch(updateUserData(userData));
+                setUser(userData);
+                setName(userData.name || '');
+                setEmail(userData.email || '');
               }
             } catch (error) {
               console.error('Background refresh error:', error);
@@ -140,11 +162,14 @@ export default function AccountScreen() {
             if (!isMounted) return;
             
             if (response.data) {
-              await cacheService.cacheUserData(response.data);
-              dispatch(updateUserData(response.data));
-              setUser(response.data);
-              setName(response.data.name || '');
-              setEmail(response.data.email || '');
+              // Add lastFetched timestamp
+              const userData = {...response.data, lastFetched: Date.now()};
+              
+              await cacheService.cacheUserData(userData);
+              dispatch(updateUserData(userData));
+              setUser(userData);
+              setName(userData.name || '');
+              setEmail(userData.email || '');
             }
             setLoading(false);
           }
@@ -277,9 +302,7 @@ export default function AccountScreen() {
                 <Avatar.Image 
                   size={80} 
                   source={{ 
-                    uri: user.profilePicture.startsWith('http') 
-                      ? user.profilePicture 
-                      : `${api.defaults.baseURL}${user.profilePicture}`
+                    uri: profileImageUrl || undefined
                   }}
                   style={styles.avatar}
                 />
