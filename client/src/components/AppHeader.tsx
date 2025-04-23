@@ -114,6 +114,7 @@ export default function AppHeader({
               size={40}
               label={userName.charAt(0).toUpperCase()}
               style={styles.avatar}
+              labelStyle={styles.avatarLabel}
             />
           )}
           
@@ -161,7 +162,7 @@ const styles = StyleSheet.create({
     borderColor: '#A78BFA',
   },
   avatarLabel: {
-    color: '#6366F1',
+    color: '#FFFFFF',
     fontSize: 20,
     fontWeight: 'bold',
   },

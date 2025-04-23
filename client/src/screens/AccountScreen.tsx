@@ -314,7 +314,22 @@ We may update this policy periodically. Continued use of the application constit
   ];
 
   const handleLogout = () => {
-    dispatch(logout());
+    Alert.alert(
+      'Confirm Logout',
+      'Are you sure you want to log out of your account?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: () => dispatch(logout())
+        }
+      ],
+      { cancelable: true }
+    );
   };
 
   // Format date to readable format
