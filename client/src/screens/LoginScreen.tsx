@@ -91,12 +91,6 @@ export default function LoginScreen() {
     dispatch(loginUser({ email, password }));
   };
 
-  const handleGoogleLogin = async () => {
-    // Implement OAuth login
-    setErrorMessage('Google login not implemented yet');
-    setShowErrorSnackbar(true);
-  };
-
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
@@ -107,7 +101,7 @@ export default function LoginScreen() {
           <>
             <View style={styles.header}>
               <Image 
-                source={require('../../assets/logo.png')} 
+                source={require('../../assets/app-logo.png')} 
                 style={styles.logo}
                 resizeMode="contain"
               />
@@ -165,21 +159,6 @@ export default function LoginScreen() {
                 Login
               </Button>
 
-              <View style={styles.dividerContainer}>
-                <Divider style={styles.divider} />
-                <Text style={styles.dividerText}>OR CONTINUE WITH</Text>
-                <Divider style={styles.divider} />
-              </View>
-
-              <Button
-                mode="outlined"
-                icon="google"
-                onPress={handleGoogleLogin}
-                style={styles.googleButton}
-                contentStyle={styles.buttonContent}>
-                Google
-              </Button>
-
               <View style={styles.linkContainer}>
                 <Text variant="bodyMedium">Don't have an account? </Text>
                 <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
@@ -229,9 +208,12 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   logo: {
-    width: 60,
-    height: 60,
+    width: 80,
+    height: 80,
     marginBottom: 12,
+    borderRadius: 40,
+    borderWidth: 2,
+    borderColor: '#6366F1',
   },
   title: {
     fontSize: 24,
@@ -259,24 +241,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
     height: 48,
   },
-  dividerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 12,
-  },
-  divider: {
-    flex: 1,
-    height: 1,
-  },
-  dividerText: {
-    marginHorizontal: 12,
-    color: '#6B7280',
-    fontSize: 12,
-  },
-  googleButton: {
-    borderColor: '#E5E7EB',
-    height: 48,
-  },
   linkContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -291,7 +255,6 @@ const styles = StyleSheet.create({
   errorSnackbar: {
     backgroundColor: '#EF4444',
   },
-  // Add these new styles for the success message
   successContainer: {
     alignItems: 'center',
     justifyContent: 'center',
