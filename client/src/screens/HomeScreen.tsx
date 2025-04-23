@@ -317,7 +317,7 @@ export default function HomeScreen() {
                 <Text style={styles.todayLabel}>Lessons</Text>
               </Card.Content>
             </Card>
-            
+
             <Card style={styles.todayCard}>
               <Card.Content style={styles.todayCardContent}>
                 <View style={[styles.todayIconContainer, { backgroundColor: '#F0FDF4' }]}>

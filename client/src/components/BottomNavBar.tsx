@@ -5,11 +5,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 
 const routes = [
-  { name: 'Home', icon: 'home' as const, label: 'Home' },
-  { name: 'Lessons', icon: 'book' as const, label: 'Learn' },
-  { name: 'Mentor', icon: 'hardware-chip' as const, label: 'AI' },
-  { name: 'Achievements', icon: 'trophy' as const, label: 'Stats' },
-  { name: 'Account', icon: 'person' as const, label: 'Me' },
+  { name: 'Home', iconActive: 'home' as const, iconInactive: 'home-outline' as const, label: 'Home' },
+  { name: 'Lessons', iconActive: 'book' as const, iconInactive: 'book-outline' as const, label: 'Learn' },
+  { name: 'Mentor', iconActive: 'hardware-chip' as const, iconInactive: 'hardware-chip-outline' as const, label: 'AI' },
+  { name: 'Achievements', iconActive: 'trophy' as const, iconInactive: 'trophy-outline' as const, label: 'Stats' },
+  { name: 'Account', iconActive: 'person' as const, iconInactive: 'person-outline' as const, label: 'Me' },
 ];
 
 export default function BottomNavBar({ state, navigation }: BottomTabBarProps) {
@@ -25,7 +25,7 @@ export default function BottomNavBar({ state, navigation }: BottomTabBarProps) {
             style={[styles.tab, isActive && styles.activeTab]}
             onPress={() => navigation.navigate(item.name)}>
             <Ionicons
-              name={item.icon}
+              name={isActive ? item.iconActive : item.iconInactive}
               size={24}
               color={isActive ? theme.colors.primary : '#9CA3AF'}
             />

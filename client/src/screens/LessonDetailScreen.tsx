@@ -798,7 +798,7 @@ export default function LessonDetailScreen() {
                         <View style={[styles.windowBtn, styles.closeBtn]} />
                         <View style={[styles.windowBtn, styles.minimizeBtn]} />
                         <View style={[styles.windowBtn, styles.maximizeBtn]} />
-                      </View>
+                    </View>
                       <View style={styles.codeActions}>
                         <Text style={styles.codeLang}>{section.codeLanguage || 'Code'}</Text>
                         <TouchableOpacity 
@@ -942,7 +942,7 @@ export default function LessonDetailScreen() {
                   <ActivityIndicator size="small" color="#6366F1" />
                 </View>
               )}
-            </ScrollView>
+      </ScrollView>
             
             <View style={styles.aiChatInputContainer}>
               <TextInput

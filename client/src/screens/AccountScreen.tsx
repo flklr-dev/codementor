@@ -260,7 +260,7 @@ export default function AccountScreen() {
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <View style={styles.headerContent}>
-              <Text style={styles.headerTitle}>Account</Text>
+        <Text style={styles.headerTitle}>Account</Text>
               <Text style={styles.headerSubtitle}>Manage your profile</Text>
             </View>
           </View>
@@ -274,8 +274,8 @@ export default function AccountScreen() {
           <View style={styles.profileContent}>
             <View style={styles.avatarSection}>
               {user?.profilePicture ? (
-                <Avatar.Image
-                  size={80}
+                <Avatar.Image 
+                  size={80} 
                   source={{ 
                     uri: user.profilePicture.startsWith('http') 
                       ? user.profilePicture 
@@ -284,8 +284,8 @@ export default function AccountScreen() {
                   style={styles.avatar}
                 />
               ) : (
-                <Avatar.Text
-                  size={80}
+                <Avatar.Text 
+                  size={80} 
                   label={user?.name?.charAt(0) || 'U'}
                   style={styles.avatar}
                   labelStyle={styles.avatarLabel}

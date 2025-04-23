@@ -278,26 +278,26 @@ export default function LearnScreen() {
       
       // Only fetch from server if cache is stale or refreshing
       if (!cachedUserData || refreshing) {
-        // Force refresh from database
-        const response = await api.get(`/auth/me?t=${new Date().getTime()}`);
-        if (response.data) {
+      // Force refresh from database
+      const response = await api.get(`/auth/me?t=${new Date().getTime()}`);
+      if (response.data) {
           // Cache the fresh data
           await cacheService.cacheUserData(response.data);
           
-          // Update Redux store
-          dispatch({ 
-            type: 'auth/updateUserData/fulfilled', 
-            payload: response.data 
-          });
-          
-          // Also update local state for immediate UI effect
-          setUserXpData({
-            level: response.data.level || 1,
-            xp: response.data.xp || 0,
-            nextLevelXp: response.data.level * 1000 || 1000,
-            streak: response.data.streak || 0,
-          });
-          
+        // Update Redux store
+        dispatch({ 
+          type: 'auth/updateUserData/fulfilled', 
+          payload: response.data 
+        });
+        
+        // Also update local state for immediate UI effect
+        setUserXpData({
+          level: response.data.level || 1,
+          xp: response.data.xp || 0,
+          nextLevelXp: response.data.level * 1000 || 1000,
+          streak: response.data.streak || 0,
+        });
+        
           console.log('User data refreshed from server');
         }
       } else {
@@ -577,7 +577,7 @@ export default function LearnScreen() {
 
           {/* Recent Courses - If we have beginner courses */}
           {beginnerCourses.length > 0 && (
-            <View style={styles.section}>
+          <View style={styles.section}>
               <Text style={styles.sectionTitle}>Beginner Courses</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recommendedContainer}>
                 {beginnerCourses.slice(0, 5).map((course) => (
@@ -624,8 +624,8 @@ export default function LearnScreen() {
                     </View>
                   </Card>
                 ))}
-              </ScrollView>
-            </View>
+            </ScrollView>
+          </View>
           )}
 
           {/* Bottom padding for scroll */}
