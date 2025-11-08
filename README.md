@@ -11,8 +11,6 @@
 
 CodeMentor is an interactive learning platform designed to make coding education engaging and accessible. The platform combines gamification elements with comprehensive learning materials to create an immersive educational experience.
 
-![App Screenshot](client/assets/screenshots/app-preview.jpg)
-
 ## ✨ Features
 
 ### 🎮 Gamified Learning Experience
