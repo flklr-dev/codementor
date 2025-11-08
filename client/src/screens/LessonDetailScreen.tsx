@@ -68,6 +68,21 @@ interface Quiz {
   xpReward: number;
 }
 
+interface Message {
+  type: 'user' | 'ai';
+  content: string;
+  id: string;
+  codeBlock?: {
+    language: string;
+    code: string;
+    copied?: boolean;
+  };
+}
+
+interface CopyState {
+  [key: string]: boolean;
+}
+
 // Define the style types
 interface Styles {
   container: ViewStyle;
@@ -149,17 +164,24 @@ interface Styles {
   aiChatHeader: ViewStyle;
   aiChatTitle: TextStyle;
   aiChatMessages: ViewStyle;
-  aiMessage: ViewStyle;
-  userMessage: ViewStyle;
-  aiMessageText: TextStyle;
-  userMessageText: TextStyle;
   messageWrapper: ViewStyle;
+  messageBubble: ViewStyle;
+  userMessage: ViewStyle;
+  aiMessage: ViewStyle;
+  userMessageText: TextStyle;
+  aiMessageText: TextStyle;
+  aiAssistantAvatar: ViewStyle;
   aiChatInputContainer: ViewStyle;
   aiChatInput: ViewStyle;
   aiChatSendButton: ViewStyle;
   aiChatCloseButton: ViewStyle;
-  aiAssistantAvatar: ViewStyle;
   aiLoadingIndicator: ViewStyle;
+  codeBlock: ViewStyle;
+  codeLanguage: TextStyle;
+  copyButton: ViewStyle;
+  copyButtonText: TextStyle;
+  codeText: TextStyle;
+  chatCodeHeader: ViewStyle;
 }
 
 export default function LessonDetailScreen() {
@@ -193,9 +215,14 @@ export default function LessonDetailScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [showAiChat, setShowAiChat] = useState(false);
   const [aiMessage, setAiMessage] = useState('');
-  const [aiMessages, setAiMessages] = useState<{type: 'ai' | 'user', content: string}[]>([
-    {type: 'ai', content: "Hi! I'm your AI assistant for this lesson. How can I help you understand the content better?"}
+  const [aiMessages, setAiMessages] = useState<Message[]>([
+    {
+      id: '1',
+      type: 'ai',
+      content: "Hi! I'm your AI assistant for this lesson. How can I help you understand the content better?"
+    }
   ]);
+  const [copyStates, setCopyStates] = useState<CopyState>({});
   const [aiLoading, setAiLoading] = useState(false);
   const aiChatScrollViewRef = useRef<ScrollView>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -530,6 +557,22 @@ export default function LessonDetailScreen() {
   const copyCodeToClipboard = async (code: string) => {
     try {
       await Clipboard.setStringAsync(code);
+      
+      // Update copy states to show feedback
+      const copyKey = `code_${Date.now()}`;
+      setCopyStates(prev => ({
+        ...prev,
+        [copyKey]: true
+      }));
+      
+      // Reset copy state after 2 seconds
+      setTimeout(() => {
+        setCopyStates(prev => ({
+          ...prev,
+          [copyKey]: false
+        }));
+      }, 2000);
+      
       setSnackbarMessage('Code copied to clipboard!');
       setShowSnackbar(true);
     } catch (error) {
@@ -543,8 +586,12 @@ export default function LessonDetailScreen() {
   const handleAiChatSend = async () => {
     if (!aiMessage.trim() || aiLoading) return;
     
-    // Add user message to chat
-    const userMsg = { type: 'user' as const, content: aiMessage.trim() };
+    // Add user message
+    const userMsg: Message = {
+      id: Date.now().toString(),
+      type: 'user',
+      content: aiMessage.trim()
+    };
     setAiMessages(prev => [...prev, userMsg]);
     setAiMessage('');
     setAiLoading(true);
@@ -586,11 +633,11 @@ export default function LessonDetailScreen() {
       });
       
       if (response.data && response.data.response) {
-        // Add AI response to chat
-        setAiMessages(prev => [...prev, { 
-          type: 'ai', 
-          content: response.data.response 
-        }]);
+        // Parse response to extract code blocks
+        const aiResponse = parseAiResponse(response.data.response);
+        
+        // Add AI response
+        setAiMessages(prev => [...prev, aiResponse]);
         
         // Scroll to bottom
         setTimeout(() => {
@@ -601,13 +648,45 @@ export default function LessonDetailScreen() {
       }
     } catch (error) {
       console.error('Error getting AI response:', error);
-      setAiMessages(prev => [...prev, { 
-        type: 'ai', 
-        content: 'Sorry, I encountered an issue. Please try again or ask a different question.' 
-      }]);
+      const errorMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        type: 'ai',
+        content: 'Sorry, I encountered an issue. Please try again or ask a different question.'
+      };
+      setAiMessages(prev => [...prev, errorMsg]);
     } finally {
       setAiLoading(false);
     }
+  };
+  
+  // Function to parse AI response and extract code blocks
+  const parseAiResponse = (response: string): Message => {
+    const message: Message = {
+      id: Date.now().toString(),
+      type: 'ai',
+      content: response
+    };
+    
+    // Check for code blocks using regex pattern ```language code ```
+    const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/g;
+    const match = codeBlockRegex.exec(response);
+    
+    if (match) {
+      // Extract language and code
+      const language = match[1] || 'code';
+      const code = match[2].trim();
+      
+      // Remove code block from the message content
+      message.content = response.replace(match[0], '').trim();
+      
+      // Add code block to message
+      message.codeBlock = {
+        language,
+        code
+      };
+    }
+    
+    return message;
   };
 
   // Function to handle pull-to-refresh
@@ -919,21 +998,50 @@ export default function LessonDetailScreen() {
               onContentSizeChange={() => aiChatScrollViewRef.current?.scrollToEnd({ animated: true })}
             >
               {aiMessages.map((msg, index) => (
-                <View 
-                  key={index} 
-                  style={[
-                    styles.messageWrapper,
-                    msg.type === 'user' ? styles.userMessage : styles.aiMessage
-                  ]}
-                >
-                  {msg.type === 'ai' && (
-                    <View style={styles.aiAssistantAvatar}>
-                      <Ionicons name="school" size={16} color="#FFFFFF" />
+                <View key={index} style={styles.messageWrapper}>
+                  {msg.type === 'user' ? (
+                    // User message - align right
+                    <View style={{ alignSelf: 'flex-end', maxWidth: '80%' }}>
+                      <View style={styles.userMessage}>
+                        <Text style={styles.userMessageText}>{msg.content}</Text>
+                      </View>
+                    </View>
+                  ) : (
+                    // AI message - align left with avatar
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                      <View style={styles.aiAssistantAvatar}>
+                        <Ionicons name="school" size={16} color="#FFFFFF" />
+                      </View>
+                      <View style={{ maxWidth: '80%' }}>
+                        <View style={styles.aiMessage}>
+                          <Text style={styles.aiMessageText}>{msg.content}</Text>
+                          {msg.codeBlock && (
+                            <View style={styles.codeBlock}>
+                              <View style={styles.chatCodeHeader}>
+                                <Text style={styles.codeLanguage}>
+                                  {msg.codeBlock.language || 'code'}
+                                </Text>
+                                <TouchableOpacity 
+                                  style={styles.copyButton}
+                                  onPress={() => copyCodeToClipboard(msg.codeBlock?.code || '')}
+                                >
+                                  <Ionicons 
+                                    name={copyStates[`code_${msg.id}`] ? "checkmark-circle" : "copy-outline"} 
+                                    size={16} 
+                                    color={copyStates[`code_${msg.id}`] ? "#4CAF50" : "#9CA3AF"} 
+                                  />
+                                  <Text style={styles.copyButtonText}>
+                                    {copyStates[`code_${msg.id}`] ? 'Copied' : 'Copy'}
+                                  </Text>
+                                </TouchableOpacity>
+                              </View>
+                              <Text style={styles.codeText}>{msg.codeBlock.code}</Text>
+                            </View>
+                          )}
+                        </View>
+                      </View>
                     </View>
                   )}
-                  <Text style={msg.type === 'user' ? styles.userMessageText : styles.aiMessageText}>
-                    {msg.content}
-                  </Text>
                 </View>
               ))}
               
@@ -942,7 +1050,7 @@ export default function LessonDetailScreen() {
                   <ActivityIndicator size="small" color="#6366F1" />
                 </View>
               )}
-      </ScrollView>
+            </ScrollView>
             
             <View style={styles.aiChatInputContainer}>
               <TextInput
@@ -1450,34 +1558,37 @@ const styles = StyleSheet.create<Styles>({
     padding: 16,
   },
   messageWrapper: {
-    marginBottom: 12,
-    maxWidth: '80%',
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    width: '100%', 
+    paddingHorizontal: 16, 
+    marginBottom: 16
   },
-  aiMessage: {
-    alignSelf: 'flex-start',
-  },
-  userMessage: {
-    alignSelf: 'flex-end',
-    justifyContent: 'flex-end',
-  },
-  aiMessageText: {
-    backgroundColor: '#F3F4F6',
+  messageBubble: {
+    flex: 1,
     padding: 12,
     borderRadius: 16,
-    borderTopLeftRadius: 4,
-    color: '#1F2937',
-    fontSize: 15,
-    lineHeight: 20,
   },
-  userMessageText: {
+  userMessage: {
     backgroundColor: '#6366F1',
     padding: 12,
     borderRadius: 16,
     borderTopRightRadius: 4,
+    elevation: 2,
+  },
+  aiMessage: {
+    backgroundColor: '#FFFFFF',
+    padding: 12,
+    borderRadius: 16,
+    borderTopLeftRadius: 4,
+    elevation: 2,
+  },
+  userMessageText: {
     color: '#FFFFFF',
     fontSize: 15,
+    lineHeight: 20,
+  },
+  aiMessageText: {
+    fontSize: 15,
+    color: '#1F2937',
     lineHeight: 20,
   },
   aiAssistantAvatar: {
@@ -1537,5 +1648,45 @@ const styles = StyleSheet.create<Styles>({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
+  },
+  codeBlock: {
+    marginTop: 8,
+    backgroundColor: '#1F2937',
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  chatCodeHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  codeLanguage: {
+    color: '#9CA3AF',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  copyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  copyButtonText: {
+    color: '#9CA3AF',
+    fontSize: 11,
+    marginLeft: 4,
+    fontWeight: '400',
+  },
+  codeText: {
+    color: '#E5E7EB',
+    fontFamily: 'monospace',
+    fontSize: 14,
+    padding: 12,
   },
 }); 
